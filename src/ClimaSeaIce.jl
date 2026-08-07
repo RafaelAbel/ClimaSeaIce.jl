@@ -9,6 +9,8 @@ end ClimaSeaIce
 
 export SeaIceModel,
        MeltingConstrainedFluxBalance,
+       MeltingConstrainedSurfaceFluxBalance,
+       OceanFreezingTemperatureBoundary,
        PrescribedTemperature,
        RadiativeEmission,
        PhaseTransitions,
@@ -17,6 +19,44 @@ export SeaIceModel,
        SlabThermodynamics,
        snow_slab_thermodynamics,
        sea_ice_slab_thermodynamics,
+       QuadraticLiquidusEnergyRelation,
+       FixedDrainedIceSalinityProfile,
+       salinity_at_normalized_depth,
+       salinity_at_normalized_height,
+       FixedSalinityBrinePocketEnergyRelation,
+       MaykutUntersteinerConductivity,
+       BubblyBrineConductivity,
+       ice_thermal_conductivity,
+       face_thermal_conductivity,
+       ColumnEnergyThermodynamics,
+       prescribed_salinity_enthalpy_thermodynamics,
+       evolving_salinity_mushy_thermodynamics,
+       PrescribedBulkSalinity,
+       PrognosticBulkSalinity,
+       ConductiveTemperatureTransport,
+       DiffusiveEnergyTransport,
+       ConductiveAndDiffusiveEnergyTransport,
+       NoSalinityTransport,
+       BulkSalinityDiffusion,
+       BrineSalinityDiffusion,
+       NoShortwaveAbsorption,
+       ExponentialShortwaveAbsorption,
+       ColumnBoundaryConditions,
+       InsulatingBoundary,
+       PrescribedEnergyFlux,
+       MeltingLimitedSurfaceFlux,
+       compute_column_surface_stefan_residual_flux!,
+       column_surface_stefan_residual_flux,
+       column_energy_time_step!,
+       column_salinity_time_step!,
+       column_energy_budget,
+       column_salt_budget,
+       column_stefan_thickness_change,
+       column_stefan_thickness_update!,
+       column_stefan_thickness_budget,
+       conservative_column_remap,
+       conservative_column_remap!,
+       column_layer_integral,
        SeaIceMomentumEquation,
        ExplicitSolver,
        SplitExplicitSolver,
@@ -24,7 +64,6 @@ export SeaIceModel,
        StressBalanceFreeDrift,
        ViscousRheology,
        ElastoViscoPlasticRheology
-
 
 using KernelAbstractions: @kernel, @index
 using Oceananigans: Oceananigans, AbstractModel, fields, prognostic_fields,
@@ -38,7 +77,6 @@ using Oceananigans.ImmersedBoundaries: ImmersedBoundaries, ImmersedBoundaryGrid
 using Oceananigans.Operators: Axᶠᶜᶜ, Ayᶜᶠᶜ, Vᶜᶜᶜ, δxᶜᵃᵃ, δyᵃᶜᵃ
 using Oceananigans.TimeSteppers: tick!, Clock, update_state!
 using Oceananigans.Utils: launch!, prettytime
-
 @inline ice_mass(i, j, k, grid, h, ℵ, ρ) = @inbounds h[i, j, k] * ρ[i, j, k] * ℵ[i, j, k]
 
 # Candidate for upstreaming to Oceananigans.

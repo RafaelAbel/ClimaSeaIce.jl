@@ -7,6 +7,7 @@
 #   * set up a two-dimensional sea ice model with immersed boundaries,
 #   * prescribe atmospheric and oceanic stresses,
 #   * use elasto-visco-plastic rheology with split-explicit time stepping,
+#   * evolve a fixed-salinity Bitz-Lipscomb (BL99) energy column in each ice cell,
 #   * visualize the evolution of ice thickness, concentration, and velocity.
 #
 # ## Install dependencies
@@ -33,6 +34,7 @@ Lx = 512kilometers
 Ly = 256kilometers
 Nx = 256
 Ny = 128
+Nz = 8
 
 y_max = Ly / 2
 
@@ -43,16 +45,17 @@ arch = CPU()
 # We create a rectilinear grid with periodic boundaries in ``x`` and bounded
 # boundaries in ``y``:
 
-grid = RectilinearGrid(arch; size = (Nx, Ny),
+grid = RectilinearGrid(arch; size = (Nx, Ny, Nz),
                                 x = (-Lx/2, Lx/2),
                                 y = (0, Ly),
-                             halo = (4, 4),
-                         topology = (Periodic, Bounded, Flat))
+                                z = (0, 1),
+                             halo = (4, 4, 4),
+                         topology = (Periodic, Bounded, Bounded))
 
 # We define a triangular coastline using an immersed boundary:
 
-bottom(x, y) = ifelse(y > y_max, 0,
-               ifelse(abs(x / Lx) * Nx + y / Ly * Ny > 24, 0, 1))
+bottom(x, y, z) = ifelse(y > y_max, 0,
+                  ifelse(abs(x / Lx) * Nx + y / Ly * Ny > 24, 0, 1))
 
 grid = ImmersedBoundaryGrid(grid, GridFittedBoundary(bottom))
 
@@ -105,13 +108,32 @@ u_bcs = FieldBoundaryConditions(grid, (Face(), Center(), nothing);
 v_bcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
                                 immersed = immersed_v_bc)
 
-# We define the model with WENO advection and no thermodynamics:
+# We use the fixed-salinity BL99 path from PR141: the drained-ice salinity
+# profile, fixed-salinity brine-pocket energy relation, and MU71 conductivity.
+# This evolves one vertical energy column at every horizontal sea-ice cell.
+
+bl99_relation = FixedSalinityBrinePocketEnergyRelation(eltype(grid))
+bl99_salinity = FixedDrainedIceSalinityProfile(eltype(grid))
+bl99_conductivity = MaykutUntersteinerConductivity(eltype(grid))
+bl99_boundary_conditions = ColumnBoundaryConditions(
+    top = PrescribedEnergyFlux(-15.0),
+    bottom = PrescribedTemperature(-1.8))
+
+bl99_thermodynamics = ClimaSeaIce.SeaIceThermodynamics.prescribed_salinity_enthalpy_thermodynamics(grid;
+    relation = bl99_relation,
+    salinity_profile = bl99_salinity,
+    energy_transport = ConductiveTemperatureTransport(conductivity = bl99_conductivity),
+    boundary_conditions = bl99_boundary_conditions)
+
+set!(bl99_thermodynamics; temperature = -10.0)
+
+# We define the model with WENO advection and BL99 thermodynamics:
 
 model = SeaIceModel(grid;
                     advection = WENO(order=7),
                     dynamics,
                     boundary_conditions = (; u=u_bcs, v=v_bcs),
-                    ice_thermodynamics = nothing)
+                    ice_thermodynamics = bl99_thermodynamics)
 
 # We initialize the model with uniform ice thickness and concentration:
 

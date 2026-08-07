@@ -465,7 +465,7 @@ end
 
 settable_column_field_value(value) = value
 settable_column_field_value(profile::FixedDrainedIceSalinityProfile) =
-    z -> salinity_at_normalized_height(profile, z)
+    (coordinates...) -> salinity_at_normalized_height(profile, last(coordinates))
 
 set_column_field!(field, value) = set!(field, settable_column_field_value(value))
 

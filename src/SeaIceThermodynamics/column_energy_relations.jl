@@ -244,6 +244,13 @@ end
 @inline (profile::FixedDrainedIceSalinityProfile)(normalized_height_above_base) =
     salinity_at_normalized_height(profile, normalized_height_above_base)
 
+# A prescribed profile is vertical-only, but the column model can be placed on a
+# horizontally resolved grid. Oceananigans then initializes center fields with
+# `(x, y, z)`, so ignore the horizontal coordinates while retaining the same
+# normalized-height profile in every column.
+@inline (profile::FixedDrainedIceSalinityProfile)(x, y, normalized_height_above_base) =
+    salinity_at_normalized_height(profile, normalized_height_above_base)
+
 """
     FixedSalinityBrinePocketEnergyRelation([FT=Oceananigans.defaults.FloatType; phase_transitions])
 

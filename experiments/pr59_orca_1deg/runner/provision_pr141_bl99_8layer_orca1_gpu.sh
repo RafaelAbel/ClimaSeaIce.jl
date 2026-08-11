@@ -37,7 +37,10 @@ until CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" -
   sleep 30
 done
 
-git -C "$REPO_ROOT" archive --format=tar.gz --output="$LOCAL_TARBALL" "$SOURCE_REV"
+# The VM hydrator expects a single top-level package directory, matching the
+# layout produced by GitHub's source tarballs.
+git -C "$REPO_ROOT" archive --prefix="ClimaSeaIce.jl-${SOURCE_SHORT}/" \
+  --format=tar.gz --output="$LOCAL_TARBALL" "$SOURCE_REV"
 
 CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
   "$LOCAL_PATCH" "$LOCAL_CLOUD_LAUNCHER" "$LOCAL_REMOTE_RUNNER" \

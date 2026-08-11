@@ -65,6 +65,10 @@ writes diagnostics including `surface.jld2`, uploads outputs to the bucket,
 and shuts the VM down on exit. The old-thermodynamics path above remains
 unchanged.
 
+For the January 2006 start, the runner also stages the four 2005 JRA55
+boundary records from the existing project bucket. This is the same forcing
+used at the start boundary and avoids a slow external ESGF download.
+
 ## Launching on a prepared GPU VM
 
 Copy the three files below to the VM, then run the VM runner with the recorded

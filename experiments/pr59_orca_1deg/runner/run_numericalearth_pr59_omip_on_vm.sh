@@ -25,6 +25,10 @@ OMIP_BUCKET_NAME="${OMIP_BUCKET_NAME:-sea_ice}"
 OMIP_GLORYS_BUCKET_PREFIX="${OMIP_GLORYS_BUCKET_PREFIX:-inputs/tripolar_glorys_jra55/2006/glorys}"
 OMIP_ECCO_BUCKET_PREFIX="${OMIP_ECCO_BUCKET_PREFIX:-inputs/tripolar_ecco4/2006/ecco4}"
 OMIP_JRA55_BUCKET_PREFIX="${OMIP_JRA55_BUCKET_PREFIX:-inputs/tripolar_glorys_jra55/2006/jra55}"
+# January-2006 starts require four previous-year forcing records. These exact
+# files are already staged in the project bucket; use them before attempting
+# the much slower external ESGF fallback.
+OMIP_JRA55_PREVIOUS_YEAR_BUCKET_PREFIX="${OMIP_JRA55_PREVIOUS_YEAR_BUCKET_PREFIX:-inputs/arctic_rotated_glorys12_jra55/2006-01-01_2007-01-01/2006-01-01/jra55}"
 OMIP_UPLOAD_OUTPUTS="${OMIP_UPLOAD_OUTPUTS:-false}"
 OMIP_OUTPUT_BUCKET_PREFIX="${OMIP_OUTPUT_BUCKET_PREFIX:-outputs/numericalearth_pr59}"
 OMIP_SHUTDOWN_ON_EXIT="${OMIP_SHUTDOWN_ON_EXIT:-false}"
@@ -232,6 +236,26 @@ ensure_previous_year_jra55_boundary_files() {
   local start_year prev_year pair path url expected_size actual_size
   start_year=$((10#${OMIP_START_DATE:0:4}))
   prev_year=$((start_year - 1))
+
+  local boundary_paths=()
+  while IFS='|' read -r path url; do
+    [[ -n "$path" ]] && boundary_paths+=("$path")
+  done < <(jra55_boundary_urls "$prev_year")
+
+  local missing_boundary=false
+  for path in "${boundary_paths[@]}"; do
+    [[ -f "$path" ]] || missing_boundary=true
+  done
+
+  if [[ "$missing_boundary" == "true" && -n "$OMIP_JRA55_PREVIOUS_YEAR_BUCKET_PREFIX" ]]; then
+    echo "Staging previous-year JRA55 boundary files from the bucket"
+    for path in "${boundary_paths[@]}"; do
+      gcloud --project="${GOOGLE_CLOUD_PROJECT:-rafael-sandbox-488511}" storage cp \
+        "gs://${OMIP_BUCKET_NAME}/${OMIP_JRA55_PREVIOUS_YEAR_BUCKET_PREFIX}/$(basename "$path")" \
+        "$path"
+    done
+    return
+  fi
 
   while IFS='|' read -r path url; do
     [[ -n "$path" ]] || continue

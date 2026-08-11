@@ -23,6 +23,12 @@ SOURCE_SHORT="${SOURCE_REV:0:12}"
 LOCAL_TARBALL="/private/tmp/climaseaice_${SOURCE_SHORT}.tar.gz"
 REMOTE_TARBALL="/home/rafaelabel/climaseaice_${SOURCE_SHORT}.tar.gz"
 REMOTE_SOURCE="/opt/Sea_ice/experiments/numericalearth_pr59/ClimaSeaIce.jl-pr141_bl99_8layer_${SOURCE_SHORT}"
+JUNE8_PR59_COMMIT="bf1f9fcf8a131940ca8e6b9cd885e292c23b0ea7"
+JUNE8_PR59_URL="https://codeload.github.com/NumericalEarth/NumericalEarth.jl/tar.gz/${JUNE8_PR59_COMMIT}"
+JUNE8_PR59_DIR="NumericalEarth.jl-${JUNE8_PR59_COMMIT}"
+LOCAL_PR59_TARBALL="/private/tmp/numericalearth_pr59_june8_${JUNE8_PR59_COMMIT:0:8}.tar.gz"
+REMOTE_PR59_TARBALL="/home/rafaelabel/numericalearth_pr59_june8_${JUNE8_PR59_COMMIT:0:8}.tar.gz"
+REMOTE_PR59_SOURCE="/opt/Sea_ice/experiments/numericalearth_pr59/${JUNE8_PR59_DIR}"
 REMOTE_LOG="/home/rafaelabel/numericalearth_pr59_a100_ecco_${RUN_LABEL}_launcher_$(date -u +%Y%m%dT%H%M%SZ).log"
 
 GCLOUD=(gcloud --project="$PROJECT_ID")
@@ -42,11 +48,18 @@ done
 git -C "$REPO_ROOT" archive --prefix="ClimaSeaIce.jl-${SOURCE_SHORT}/" \
   --format=tar.gz --output="$LOCAL_TARBALL" "$SOURCE_REV"
 
+# This is the last PR59 source commit before the June 8 baseline run. Unlike
+# the workspace metadata snapshot, this upstream archive includes the complete
+# NumericalEarth source tree and cannot move underneath a retry.
+curl -L --fail --silent --show-error "$JUNE8_PR59_URL" -o "$LOCAL_PR59_TARBALL"
+
 CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
   "$LOCAL_PATCH" "$LOCAL_CLOUD_LAUNCHER" "$LOCAL_REMOTE_RUNNER" \
   "$VM_NAME:/home/rafaelabel/" --zone="$ZONE"
 CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
   "$LOCAL_TARBALL" "$VM_NAME:$REMOTE_TARBALL" --zone="$ZONE"
+CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
+  "$LOCAL_PR59_TARBALL" "$VM_NAME:$REMOTE_PR59_TARBALL" --zone="$ZONE"
 
 CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone="$ZONE" --command="
   chmod +x /home/rafaelabel/run_numericalearth_pr59_omip_on_vm.sh &&
@@ -70,11 +83,16 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone=
     OMIP_LAUNCHER_LOG='${REMOTE_LOG}' \
     OMIP_OUTPUT_DIR='/home/rafaelabel/numericalearth_pr59_a100_ecco_${RUN_LABEL}' \
     OMIP_SEA_ICE_THERMODYNAMICS='pr141_bl99' \
+    OMIP_CLEAN_PR59_BASELINE='true' \
     OMIP_WITH_SNOW='false' \
     OMIP_WITH_ICE_DYNAMICS='false' \
     CLIMASEAICE_VARIANT='pr141_bl99_8layer_${SOURCE_SHORT}' \
     CLIMASEAICE_TARBALL='${REMOTE_TARBALL}' \
     CLIMASEAICE_SRC='${REMOTE_SOURCE}' \
+    TARBALL_PATH='${REMOTE_PR59_TARBALL}' \
+    SRC_ROOT='${REMOTE_PR59_SOURCE}' \
+    PROJECT_DIR='${REMOTE_PR59_SOURCE}/experiments/OMIPSimulations' \
+    REFRESH_PR_SOURCE='true' \
     BIHARMONIC='50days' \
     CORRECTED='true' \
     SNOW='false' \

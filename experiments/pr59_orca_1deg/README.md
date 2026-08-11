@@ -54,16 +54,23 @@ ECCO/JRA55 setup. It builds a dedicated, eight-layer ORCA sea-ice grid and
 initializes thickness and concentration from ECCO. Ice dynamics are hard-coded
 to `nothing` in the constructor; the launch environment cannot enable them.
 
-After committing the branch, launch the five-day GPU smoke test with:
+The path packages the last PR59 source commit before the June 8 baseline run
+(`bf1f9fcf`) rather than a moving upstream PR reference. It preserves the
+baseline NumericalEarth and
+JRA55 forcing interfaces and resolves the coherent historical package family:
+NumericalEarth 0.5.4, Oceananigans 0.108.2, SeawaterPolynomials 0.3.10, and
+the packaged PR141 source reported as 0.5.7. The only source-local fixes are
+the two Julia-1.12 PR141 compatibility adjustments. After committing the
+branch, launch the five-day GPU smoke test with:
 
 ```bash
 bash runner/provision_pr141_bl99_8layer_orca1_gpu.sh
 ```
 
-It packages the exact committed source, uploads it with the dedicated adapter,
-writes diagnostics including `surface.jld2`, uploads outputs to the bucket,
-and shuts the VM down on exit. The old-thermodynamics path above remains
-unchanged.
+It packages the exact committed PR141 source and the pinned baseline, uploads
+them with the dedicated adapter, writes diagnostics including `surface.jld2`,
+uploads outputs to the bucket, and shuts the VM down on exit. The
+old-thermodynamics path above remains unchanged.
 
 For the January 2006 start, the runner also stages the four 2005 JRA55
 boundary records from the existing project bucket. This is the same forcing

@@ -56,6 +56,11 @@ CLIMAOCEAN_PROJECT="${CLIMAOCEAN_PROJECT:-/opt/Sea_ice/clima/ClimaOcean.jl-main}
 INSTANTIATE_STAMP="${INSTANTIATE_STAMP:-$WORK_ROOT/.omip_project_instantiated_${CLIMASEAICE_VARIANT}_v1}"
 RUNNER_LOCK_PATH="${RUNNER_LOCK_PATH:-$WORK_ROOT/.omip_runner.lock}"
 REFRESH_PR_SOURCE="${REFRESH_PR_SOURCE:-false}"
+# PR141's eight-layer implementation was developed against the June 8 PR59
+# source snapshot and Oceananigans 0.108. Keep that source/dependency family
+# intact: the current upstream PR59 head resolves a newer, incompatible
+# NumericalEarth package for the JRA55 forcing interface.
+OMIP_CLEAN_PR59_BASELINE="${OMIP_CLEAN_PR59_BASELINE:-false}"
 
 mkdir -p "$WORK_ROOT"
 
@@ -174,6 +179,66 @@ patch_numericalearth_api_compat() {
   perl -0pi -e 's/\@inline net_flux\(condition\) = condition\n\@inline net_flux\(bc::MultipleFluxes\) = bc\.flux_field\n\@inline net_flux\(bc::DiscreteBoundaryFunction\) = net_flux\(bc\.func\)\n\@inline net_flux\(bc::[^\n]+\) = net_flux\(bc\.explicit_flux\)\n\n\@inline net_flux_coefficient\(condition\) = nothing\n\@inline net_flux_coefficient\(bc::[^\n]+\) = net_flux\(bc\.coefficient\)/\@inline net_flux(condition) = hasproperty(condition, :explicit_flux) ? net_flux(getproperty(condition, :explicit_flux)) : condition\n\@inline net_flux(bc::MultipleFluxes) = bc.flux_field\n\@inline net_flux(bc::DiscreteBoundaryFunction) = net_flux(bc.func)\n\n\@inline net_flux_coefficient(condition) = hasproperty(condition, :coefficient) ? net_flux(getproperty(condition, :coefficient)) : nothing/s' "$oceans_file"
 
   perl -0pi -e 's/ImplicitExplicitFluxBoundaryCondition\(/Oceananigans.BoundaryConditions.ImplicitExplicitFluxBoundaryCondition(/g' "$ocean_simulation_file"
+}
+
+wire_clean_pr141_source() {
+  # This is deliberately the only project mutation in the clean PR141 path:
+  # direct the two project environments to the packaged PR141 source. The
+  # baseline's own NumericalEarth, Oceananigans, and forcing code remain as
+  # they were in the June 8 source snapshot.
+  local project
+
+  if [[ ! -d "$CLIMASEAICE_SRC" ]]; then
+    local unpack_dir extracted_dir
+    [[ -f "$CLIMASEAICE_TARBALL" ]] || {
+      echo "Missing packaged PR141 ClimaSeaIce source: $CLIMASEAICE_TARBALL" >&2
+      exit 1
+    }
+    unpack_dir="$(mktemp -d "$WORK_ROOT/climaseaice_unpack.XXXXXX")"
+    tar -xzf "$CLIMASEAICE_TARBALL" -C "$unpack_dir"
+    extracted_dir="$(find "$unpack_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    [[ -n "$extracted_dir" ]] || {
+      echo "Failed to find extracted PR141 source in $CLIMASEAICE_TARBALL" >&2
+      exit 1
+    }
+    mv "$extracted_dir" "$CLIMASEAICE_SRC"
+    rm -rf "$unpack_dir"
+  fi
+
+  grep -q 'FixedSalinityBrinePocketEnergyRelation' "$CLIMASEAICE_SRC/src/ClimaSeaIce.jl" || {
+    echo "Packaged ClimaSeaIce source is not the PR141 thermodynamics revision." >&2
+    exit 1
+  }
+
+  # The snapshot's OMIP project pins Oceananigans 0.108, while its parent
+  # package still advertises 0.109. Its old branch sources have since moved
+  # to incompatible releases. These four constraints reproduce the coherent
+  # June-era family: NumericalEarth 0.5.4 / Oceananigans 0.108 / Seawater
+  # Polynomials 0.3 / PR141 ClimaSeaIce 0.5.7.
+  sed -i 's/^Oceananigans = "0.109"$/Oceananigans = "0.108"/' "$SRC_ROOT/Project.toml"
+  sed -i 's/^version = "0.5.1"$/version = "0.5.7"/' "$CLIMASEAICE_SRC/Project.toml"
+  sed -i 's/^SeawaterPolynomials = "0.4"$/SeawaterPolynomials = "0.3, 0.4"/' \
+    "$PROJECT_DIR/Project.toml"
+
+  # PR141 contains a duplicate `fields(::Nothing)` method in an included
+  # implementation file. Removing the duplicate and disabling incremental
+  # precompilation are required for this historical source on Julia 1.12.
+  sed -i '/^__precompile__(false)$/d' "$CLIMASEAICE_SRC/src/ClimaSeaIce.jl"
+  sed -i '1i __precompile__(false)' "$CLIMASEAICE_SRC/src/ClimaSeaIce.jl"
+  sed -i '/^fields(::Nothing) = NamedTuple()$/d' "$CLIMASEAICE_SRC/src/sea_ice_model.jl"
+
+  for project in "$SRC_ROOT/Project.toml" "$PROJECT_DIR/Project.toml"; do
+    sed -i '/^ClimaSeaIce = {path = ".*"}$/d' "$project"
+    sed -i '/^Oceananigans = {rev = "ss\/for-omip", url = "https:\/\/github.com\/CliMA\/Oceananigans.jl.git"}$/d' "$project"
+    sed -i '/^SeawaterPolynomials = {rev = "ss\/conversion-functions", url = "https:\/\/github.com\/CliMA\/SeawaterPolynomials.jl.git"}$/d' "$project"
+    sed -i 's|^ClimaSeaIce = {rev = "ss/correct-bugs", url = "https://github.com/CliMA/ClimaSeaIce.jl.git"}|ClimaSeaIce = {path = "'"$CLIMASEAICE_SRC"'"}|' "$project"
+    sed -i 's|^ClimaSeaIce = {rev = "ss/volume-conserving-advection", url = "https://github.com/CliMA/ClimaSeaIce.jl.git"}|ClimaSeaIce = {path = "'"$CLIMASEAICE_SRC"'"}|' "$project"
+    if ! grep -q '^ClimaSeaIce = {path = "' "$project"; then
+      sed -i "/^\[sources\]/a\\
+ClimaSeaIce = {path = \"$CLIMASEAICE_SRC\"}
+" "$project"
+    fi
+  done
 }
 
 required_glorys_files=(
@@ -379,13 +444,17 @@ if [[ ! -d "$PROJECT_DIR" ]]; then
   exit 1
 fi
 
-patch_project_tomls
-patch_numericalearth_api_compat
+if [[ "$OMIP_CLEAN_PR59_BASELINE" == "true" ]]; then
+  wire_clean_pr141_source
+else
+  patch_project_tomls
+  patch_numericalearth_api_compat
 
-# The PR59 tarball ships a locked OMIP manifest that pulls in a much larger
-# dependency graph than this cloud smoke-test path needs.
-if [[ -f "$PROJECT_DIR/Manifest.toml" && ! -f "$PROJECT_DIR/Manifest.toml.pr59_backup" ]]; then
-  mv "$PROJECT_DIR/Manifest.toml" "$PROJECT_DIR/Manifest.toml.pr59_backup"
+  # The moving PR59 tarball ships a locked OMIP manifest that pulls in a much
+  # larger dependency graph than this legacy cloud smoke-test path needs.
+  if [[ -f "$PROJECT_DIR/Manifest.toml" && ! -f "$PROJECT_DIR/Manifest.toml.pr59_backup" ]]; then
+    mv "$PROJECT_DIR/Manifest.toml" "$PROJECT_DIR/Manifest.toml.pr59_backup"
+  fi
 fi
 
 if [[ ! -f "$INSTANTIATE_STAMP" ]]; then

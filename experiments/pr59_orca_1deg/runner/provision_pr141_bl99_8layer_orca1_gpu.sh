@@ -71,7 +71,7 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone=
     OMIP_OUTPUT_DIR='/home/rafaelabel/numericalearth_pr59_a100_ecco_${RUN_LABEL}' \
     OMIP_SEA_ICE_THERMODYNAMICS='pr141_bl99' \
     OMIP_WITH_SNOW='false' \
-    OMIP_WITH_ICE_DYNAMICS='true' \
+    OMIP_WITH_ICE_DYNAMICS='false' \
     CLIMASEAICE_VARIANT='pr141_bl99_8layer_${SOURCE_SHORT}' \
     CLIMASEAICE_TARBALL='${REMOTE_TARBALL}' \
     CLIMASEAICE_SRC='${REMOTE_SOURCE}' \

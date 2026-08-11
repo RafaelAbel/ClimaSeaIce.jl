@@ -129,14 +129,6 @@ function build_ocean(config, grid;
     ecco_dir = get(ENV, "OMIP_ECCO_DIR", restoring_dir)
     ecco_dataset = ECCO4Monthly()
 
-    κ_skew = OMIPSimulations.resolve_nemo_coefficient(κ_skew, nemo_eddy_coefficients, :skew_coefficient)
-    κ_symmetric = OMIPSimulations.resolve_nemo_coefficient(κ_symmetric, nemo_eddy_coefficients, :symmetric_coefficient)
-    κ_skew = OMIPSimulations.resolve_cesm_coefficient(κ_skew, cesm_eddy_coefficients, :skew_coefficient)
-    κ_symmetric = OMIPSimulations.resolve_cesm_coefficient(κ_symmetric, cesm_eddy_coefficients, :symmetric_coefficient)
-    if !isnothing(κ_skew) && !isnothing(κ_symmetric)
-        κ_skew, κ_symmetric = OMIPSimulations.fold_safe_constant_coefficients(grid, κ_skew, κ_symmetric)
-    end
-
     closure = OMIPSimulations.omip_closure(
         vertical_closure;
         κ_skew,

@@ -46,6 +46,25 @@ The GPU runner uses:
 The runner expects pre-staged inputs in the `sea_ice` bucket. It never stores
 credentials or input NetCDF files in this repository.
 
+## PR141 BL99 eight-layer ORCA1 smoke path
+
+`patches/numericalearth_pr59_ecco_pr141_bl99_8layer_init_patch.jl` adds the
+validated PR141 fixed-salinity BL99 column thermodynamics to the same ORCA1
+ECCO/JRA55 setup. It builds a dedicated, eight-layer ORCA sea-ice grid and
+initializes thickness and concentration from ECCO. Ice dynamics are hard-coded
+to `nothing` in the constructor; the launch environment cannot enable them.
+
+After committing the branch, launch the five-day GPU smoke test with:
+
+```bash
+bash runner/provision_pr141_bl99_8layer_orca1_gpu.sh
+```
+
+It packages the exact committed source, uploads it with the dedicated adapter,
+writes diagnostics including `surface.jld2`, uploads outputs to the bucket,
+and shuts the VM down on exit. The old-thermodynamics path above remains
+unchanged.
+
 ## Launching on a prepared GPU VM
 
 Copy the three files below to the VM, then run the VM runner with the recorded

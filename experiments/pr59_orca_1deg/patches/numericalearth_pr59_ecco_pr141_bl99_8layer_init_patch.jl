@@ -25,6 +25,11 @@ end
 @inline Base.getindex(T::PR141TopLayerTemperature, i, j, k) =
     @inbounds T.temperature[i, j, PR141_ICE_LAYERS]
 
+# The frozen interface also writes its solved skin temperature back through
+# this view. Keep the exchange two-way by updating PR141's physical top cell.
+@inline Base.setindex!(T::PR141TopLayerTemperature, value, i, j, k) =
+    (@inbounds T.temperature[i, j, PR141_ICE_LAYERS] = value)
+
 Adapt.adapt_structure(to, T::PR141TopLayerTemperature) =
     PR141TopLayerTemperature(Adapt.adapt(to, T.temperature))
 

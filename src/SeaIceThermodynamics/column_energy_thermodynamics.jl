@@ -2,7 +2,7 @@ import Oceananigans: prognostic_state, restore_prognostic_state!
 using KernelAbstractions: @kernel, @index
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.Fields: AbstractField
-using Oceananigans.Grids: ZDirection, rnode, znode
+using Oceananigans.Grids: ZDirection, rnode, znode, MutableVerticalDiscretization
 using Oceananigans.Operators: Δzᵃᵃᶜ, Δzᵃᵃᶠ, σ⁻, σⁿ
 using Oceananigans.Solvers: BatchedTridiagonalSolver, solve!
 using Oceananigans.Utils: launch!
@@ -329,13 +329,14 @@ struct ColumnThermodynamicFields{E, S, T, LF, BS, TE, TS}
     temperature_salinity_derivative :: TS
 end
 
-struct ColumnAuxiliaryFields{K, KE, KS, DE, CS, I, RHS, A, B, C}
+struct ColumnAuxiliaryFields{K, KE, KS, DE, CS, I, SR, RHS, A, B, C}
     thermal_conductivity :: K
     energy_diffusivity :: KE
     salinity_diffusivity :: KS
     effective_energy_diffusivity :: DE
     salinity_coupling_diffusivity :: CS
     shortwave_flux :: I
+    surface_stefan_residual_flux :: SR
     energy_rhs :: RHS
     lower_diagonal :: A
     diagonal :: B
@@ -356,13 +357,14 @@ derivative fields. Prefer the presets
 [`prescribed_salinity_enthalpy_thermodynamics`](@ref) and
 [`evolving_salinity_mushy_thermodynamics`](@ref) for user-facing construction.
 """
-struct ColumnEnergyThermodynamics{R, SC, ET, ST, SW, BC, F, A, SOL}
+struct ColumnEnergyThermodynamics{R, SC, ET, ST, SW, BC, CE, F, A, SOL}
     relation :: R
     salinity_closure :: SC
     energy_transport :: ET
     salinity_transport :: ST
     shortwave_absorption :: SW
     boundary_conditions :: BC
+    concentration_evolution :: CE
     fields :: F
     auxiliary :: A
     solvers :: SOL
@@ -396,6 +398,7 @@ function Adapt.adapt_structure(to, auxiliary::ColumnAuxiliaryFields)
                                  Adapt.adapt(to, auxiliary.effective_energy_diffusivity),
                                  Adapt.adapt(to, auxiliary.salinity_coupling_diffusivity),
                                  Adapt.adapt(to, auxiliary.shortwave_flux),
+                                 Adapt.adapt(to, auxiliary.surface_stefan_residual_flux),
                                  Adapt.adapt(to, auxiliary.energy_rhs),
                                  Adapt.adapt(to, auxiliary.lower_diagonal),
                                  Adapt.adapt(to, auxiliary.diagonal),
@@ -416,6 +419,7 @@ function Adapt.adapt_structure(to, thermodynamics::ColumnEnergyThermodynamics)
                                       Adapt.adapt(to, thermodynamics.salinity_transport),
                                       Adapt.adapt(to, thermodynamics.shortwave_absorption),
                                       Adapt.adapt(to, thermodynamics.boundary_conditions),
+                                      Adapt.adapt(to, thermodynamics.concentration_evolution),
                                       adapted_fields,
                                       adapted_auxiliary,
                                       Adapt.adapt(to, thermodynamics.solvers))
@@ -446,6 +450,7 @@ function column_auxiliary_fields(grid)
     effective_energy_diffusivity = Field{Center, Center, Face}(grid)
     salinity_coupling_diffusivity = Field{Center, Center, Face}(grid)
     shortwave_flux = Field{Center, Center, Face}(grid)
+    surface_stefan_residual_flux = Field{Center, Center, Nothing}(grid)
     energy_rhs = Field{Center, Center, Center}(grid)
     lower_diagonal = Field{Center, Center, Center}(grid)
     diagonal = Field{Center, Center, Center}(grid)
@@ -457,6 +462,7 @@ function column_auxiliary_fields(grid)
                                  effective_energy_diffusivity,
                                  salinity_coupling_diffusivity,
                                  shortwave_flux,
+                                 surface_stefan_residual_flux,
                                  energy_rhs,
                                  lower_diagonal,
                                  diagonal,
@@ -495,6 +501,7 @@ function ColumnEnergyThermodynamics(grid;
                                     salinity_transport = NoSalinityTransport(),
                                     shortwave_absorption = NoShortwaveAbsorption(),
                                     boundary_conditions = ColumnBoundaryConditions(),
+                                    concentration_evolution = ProportionalEvolution(),
                                     fields = column_thermodynamic_fields(grid),
                                     auxiliary = column_auxiliary_fields(grid),
                                     solvers = column_solvers(grid, auxiliary))
@@ -506,6 +513,7 @@ function ColumnEnergyThermodynamics(grid;
                                       salinity_transport,
                                       shortwave_absorption,
                                       boundary_conditions,
+                                      concentration_evolution,
                                       fields,
                                       auxiliary,
                                       solvers)
@@ -1060,7 +1068,9 @@ end
                                                 E,
                                                 S,
                                                 Δz,
-                                                Δt)
+                                                Δt,
+                                                i,
+                                                j)
     end
 end
 
@@ -1084,7 +1094,9 @@ function _compute_column_surface_stefan_residual_flux_cpu!(residual_flux,
                                                     E,
                                                     S,
                                                     Δz,
-                                                    Δt)
+                                                    Δt,
+                                                    i,
+                                                    j)
         end
     end
 
@@ -1149,7 +1161,9 @@ function column_surface_stefan_residual_flux(thermodynamics::ColumnEnergyThermod
                                                             E,
                                                             S,
                                                             Δz,
-                                                            Δt)
+                                                            Δt,
+                                                            i,
+                                                            j)
         end
     end
 
@@ -1249,6 +1263,9 @@ end
 @inline column_boundary_energy_flux(boundary::MeltingLimitedSurfaceFlux) = boundary.flux
 
 @inline column_requested_surface_energy_flux(boundary) = column_boundary_energy_flux(boundary)
+@inline column_requested_surface_energy_flux(boundary, i, j) = column_requested_surface_energy_flux(boundary)
+@inline column_requested_surface_energy_flux(boundary::MeltingLimitedSurfaceFlux{<:AbstractField}, i, j) =
+    @inbounds boundary.flux[i, j, 1]
 
 @inline function column_boundary_temperature_conductance(i, j, kf, kc, grid, auxiliary)
     K = @inbounds auxiliary.thermal_conductivity[i, j, kf]
@@ -1321,8 +1338,25 @@ end
     return min(requested_flux, nonnegative_available_flux)
 end
 
+@inline function column_surface_energy_flux(boundary::MeltingLimitedSurfaceFlux,
+                                            relation,
+                                            E,
+                                            S,
+                                            Δz,
+                                            Δt,
+                                            i,
+                                            j)
+    requested_flux = column_requested_surface_energy_flux(boundary, i, j)
+    available_flux = column_energy_to_complete_melt(relation, E, S, Δz) / Δt
+    nonnegative_available_flux = max(available_flux, zero(available_flux))
+    return min(requested_flux, nonnegative_available_flux)
+end
+
 @inline column_surface_energy_flux(boundary, relation, E, S, Δz, Δt) =
     column_requested_surface_energy_flux(boundary)
+
+@inline column_surface_energy_flux(boundary, relation, E, S, Δz, Δt, i, j) =
+    column_surface_energy_flux(boundary, relation, E, S, Δz, Δt)
 
 @inline function column_surface_stefan_residual_flux(boundary::MeltingLimitedSurfaceFlux,
                                                      relation,
@@ -1334,7 +1368,20 @@ end
            column_requested_surface_energy_flux(boundary)
 end
 
+@inline function column_surface_stefan_residual_flux(boundary::MeltingLimitedSurfaceFlux,
+                                                     relation,
+                                                     E,
+                                                     S,
+                                                     Δz,
+                                                     Δt,
+                                                     i,
+                                                     j)
+    return column_surface_energy_flux(boundary, relation, E, S, Δz, Δt, i, j) -
+           column_requested_surface_energy_flux(boundary, i, j)
+end
+
 @inline column_surface_stefan_residual_flux(boundary, relation, E, S, Δz, Δt) = zero(E)
+@inline column_surface_stefan_residual_flux(boundary, relation, E, S, Δz, Δt, i, j) = zero(E)
 
 @inline function column_boundary_energy_flux(boundary, i, j, k, grid, fields, relation, Δt)
     Δz = current_column_cell_thickness(i, j, k, grid)
@@ -2332,10 +2379,134 @@ function column_energy_time_step!(thermodynamics::ColumnEnergyThermodynamics, Δ
     return nothing
 end
 
+# The column state is stored on a mutable vertical coordinate. Keep that
+# coordinate synchronized with the category thickness so that the implicit
+# column solve conservatively accounts for the layers swept by thermodynamic
+# growth and melt.
+@inline function column_metric_thickness(h, ℵ, hᶜ)
+    return ifelse(ℵ > zero(ℵ) && h > zero(h), h, hᶜ)
+end
+
+@kernel function _initialize_column_vertical_metric!(ice_thickness,
+                                                      ice_concentration,
+                                                      ice_consolidation_thickness,
+                                                      z_coordinate)
+    i, j = @index(Global, NTuple)
+
+    @inbounds begin
+        h = ice_thickness[i, j, 1]
+        ℵ = ice_concentration[i, j, 1]
+        hᶜ = ice_consolidation_thickness[i, j, 1]
+        σ = column_metric_thickness(h, ℵ, hᶜ)
+
+        z_coordinate.σᶜᶜ⁻[i, j, 1] = σ
+        z_coordinate.σᶜᶜⁿ[i, j, 1] = σ
+        z_coordinate.σᶠᶜⁿ[i, j, 1] = σ
+        z_coordinate.σᶜᶠⁿ[i, j, 1] = σ
+        z_coordinate.σᶠᶠⁿ[i, j, 1] = σ
+    end
+end
+
+"""
+    initialize_column_vertical_metric!(model, thermodynamics)
+
+Set the mutable vertical metric of a column-thermodynamic sea-ice model from
+its initialized thickness and concentration fields. This must be called after
+initial conditions are loaded and before the first thermodynamic time step.
+"""
+function initialize_column_vertical_metric!(model,
+                                            thermodynamics::ColumnEnergyThermodynamics)
+    grid = model.grid
+    grid.z isa MutableVerticalDiscretization || return nothing
+
+    launch!(architecture(grid), grid, :xy,
+            _initialize_column_vertical_metric!,
+            model.ice_thickness,
+            model.ice_concentration,
+            model.ice_consolidation_thickness,
+            grid.z)
+
+    return nothing
+end
+
+@kernel function _column_thermodynamic_ice_volume_step!(ice_thickness,
+                                                         ice_concentration,
+                                                         ice_consolidation_thickness,
+                                                         sea_ice_density,
+                                                         residual_flux,
+                                                         phase_transitions,
+                                                         concentration_evolution,
+                                                         z_coordinate,
+                                                         Δt)
+    i, j = @index(Global, NTuple)
+
+    @inbounds begin
+        hⁿ = ice_thickness[i, j, 1]
+        ℵⁿ = ice_concentration[i, j, 1]
+        hᶜ = ice_consolidation_thickness[i, j, 1]
+        ρi = sea_ice_density[i, j, 1]
+        δQ = residual_flux[i, j, 1]
+
+        # Coupled interface fluxes are per grid-cell area. Convert the Stefan
+        # residual directly to the grid-cell volume tendency used by the slab
+        # concentration rule.
+        ∂t_h = column_stefan_thickness_change(phase_transitions, ρi, δQ, one(Δt))
+        ∂t_V = ∂t_h
+        hⁿ⁺¹, ℵⁿ⁺¹ = ice_volume_update(concentration_evolution,
+                                       ∂t_V,
+                                       hⁿ,
+                                       ℵⁿ,
+                                       hᶜ,
+                                       Δt)
+
+        σ⁻ = column_metric_thickness(hⁿ, ℵⁿ, hᶜ)
+        σⁿ = column_metric_thickness(hⁿ⁺¹, ℵⁿ⁺¹, hᶜ)
+
+        ice_thickness[i, j, 1] = hⁿ⁺¹
+        ice_concentration[i, j, 1] = ℵⁿ⁺¹
+
+        z_coordinate.σᶜᶜ⁻[i, j, 1] = σ⁻
+        z_coordinate.σᶜᶜⁿ[i, j, 1] = σⁿ
+        z_coordinate.σᶠᶜⁿ[i, j, 1] = σⁿ
+        z_coordinate.σᶜᶠⁿ[i, j, 1] = σⁿ
+        z_coordinate.σᶠᶠⁿ[i, j, 1] = σⁿ
+    end
+end
+
 function thermodynamic_time_step!(model,
                                   thermodynamics::ColumnEnergyThermodynamics,
                                   ::Nothing,
                                   Δt)
+    grid = model.grid
+
+    # The melting-limited top boundary routes energy that would take the top
+    # layer past complete melt into this residual. Apply that energy to the
+    # model's ice volume, then let the moving-grid column solver remap the
+    # eight-layer state to the updated thickness.
+    compute_column_surface_stefan_residual_flux!(thermodynamics.auxiliary.surface_stefan_residual_flux,
+                                                 thermodynamics,
+                                                 Δt)
+
+    if grid.z isa MutableVerticalDiscretization
+        launch!(architecture(grid), grid, :xy,
+                _column_thermodynamic_ice_volume_step!,
+                model.ice_thickness,
+                model.ice_concentration,
+                model.ice_consolidation_thickness,
+                model.sea_ice_density,
+                thermodynamics.auxiliary.surface_stefan_residual_flux,
+                thermodynamics.relation.phase_transitions,
+                thermodynamics.concentration_evolution,
+                grid.z,
+                Δt)
+    else
+        column_stefan_thickness_update!(model.ice_thickness,
+                                        thermodynamics.relation.phase_transitions,
+                                        model.sea_ice_density,
+                                        thermodynamics.auxiliary.surface_stefan_residual_flux,
+                                        Δt)
+    end
+
     column_energy_time_step!(thermodynamics, Δt)
     return nothing
 end

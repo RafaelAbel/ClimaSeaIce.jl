@@ -140,6 +140,13 @@ end
 @inline pr141_boundary_flux_value(flux::AbstractArray{<:Any, 2}, i, j) = @inbounds flux[i, j]
 @inline pr141_boundary_flux_value(flux::AbstractArray{<:Any, 3}, i, j) = @inbounds flux[i, j, 1]
 
+@inline function CSIT.column_requested_surface_energy_flux(boundary::CSIT.MeltingLimitedSurfaceFlux{F},
+                                                            i,
+                                                            j) where
+                                                            {F <: Union{Oceananigans.Fields.AbstractField, AbstractArray}}
+    return pr141_boundary_flux_value(boundary.flux, i, j)
+end
+
 @inline function CSIT.column_boundary_energy_flux(boundary::CSIT.PrescribedEnergyFlux{F},
                                                   i, j, k, grid, fields, relation, Δt) where
                                                   {F <: Union{Oceananigans.Fields.AbstractField, AbstractArray}}
@@ -322,6 +329,7 @@ function build_sea_ice(config, grid, ocean; restoring_dir, snow_thermodynamics =
         h = Metadatum(:sea_ice_thickness; date = init_date, dataset = ecco_dataset, dir = ecco_dir),
         ℵ = Metadatum(:sea_ice_concentration; date = init_date, dataset = ecco_dataset, dir = ecco_dir),
     )
+    CSIT.initialize_column_vertical_metric!(sea_ice.model, thermodynamics)
 
     @info "Using PR141 BL99 eight-layer sea-ice path with dynamics hard-coded off" ice_layers = PR141_ICE_LAYERS with_ice_dynamics_requested = with_ice_dynamics
     return sea_ice

@@ -1401,6 +1401,51 @@ end
     @test abs(first(interior(h)) - expected_thickness) < 1e-12
 end
 
+@testset "Column thermodynamics updates sea-ice volume and moving metric" begin
+    grid = RectilinearGrid(size = (1, 1, 2),
+                           x = (0, 1),
+                           y = (0, 1),
+                           z = MutableVerticalDiscretization((0, 1)),
+                           topology = (Bounded, Bounded, Bounded))
+
+    relation = QuadraticLiquidusEnergyRelation(Float64)
+    thermodynamics = prescribed_salinity_enthalpy_thermodynamics(
+        grid;
+        relation,
+        salinity_profile = 0.0,
+        energy_transport = ConductiveTemperatureTransport(conductivity = 0.0),
+        boundary_conditions = ColumnBoundaryConditions(
+            top = MeltingLimitedSurfaceFlux(flux = 60_000.0),
+            bottom = InsulatingBoundary()),
+    )
+    set!(thermodynamics; bulk_salinity = 0.0, temperature = 0.0)
+
+    model = SeaIceModel(grid;
+                        ice_thermodynamics = thermodynamics,
+                        phase_transitions = relation.phase_transitions,
+                        top_heat_flux = 0,
+                        bottom_heat_flux = 0,
+                        ice_consolidation_thickness = 0.05)
+    set!(model, h = 1.0, ℵ = 1.0)
+    ClimaSeaIce.SeaIceThermodynamics.initialize_column_vertical_metric!(model, thermodynamics)
+
+    dt = 3600.0
+    ClimaSeaIce.SeaIceThermodynamics.thermodynamic_time_step!(model,
+                                                               thermodynamics,
+                                                               nothing,
+                                                               dt)
+
+    h = first(interior(model.ice_thickness))
+    ℵ = first(interior(model.ice_concentration))
+    residual = first(interior(thermodynamics.auxiliary.surface_stefan_residual_flux))
+    σ = grid.z.σᶜᶜⁿ[1, 1, 1]
+
+    @test residual < 0
+    @test h < 1
+    @test ℵ < 1
+    @test σ ≈ h
+end
+
 @testset "Conservative column remap" begin
     source_faces = [0.0, 0.15, 0.4, 1.0]
     source_values = [-4.0, -2.0, 3.0]

@@ -141,9 +141,12 @@ function build_ocean(config, grid;
     closure = isnothing(additional_tracer_closure) ? closure : (closure..., additional_tracer_closure)
 
     coriolis = HydrostaticSphericalCoriolis(scheme = Oceananigans.Coriolis.EnstrophyConserving())
+    # The frozen June baseline predates the adaptive vertical-discretization
+    # API. Retain its fixed vertically implicit scheme for the coupled ORCA
+    # integration; this leaves the requested PR141 sea-ice physics unchanged.
     time_discretization = implicit_vertical_advection ?
-        AdaptiveVerticallyImplicitDiscretization(cfl = 0.5) : ExplicitTimeDiscretization()
-    momentum_advection = OMIPSimulations.config_momentum_advection(config, time_discretization)
+        VerticallyImplicitTimeDiscretization() : ExplicitTimeDiscretization()
+    momentum_advection = OMIPSimulations.config_momentum_advection(config)
 
     ocean = NumericalEarth.ocean_simulation(
         grid;

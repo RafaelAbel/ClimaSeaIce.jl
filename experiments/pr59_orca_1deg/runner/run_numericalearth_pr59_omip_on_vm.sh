@@ -547,6 +547,16 @@ fi
 # misleading later "a CUDA GPU was not found" error into an immediate, useful
 # failure and keeps all GPU milestones on the same reliable startup path.
 if [[ "${OMIP_ARCH:-cpu}" == "gpu" ]]; then
+  # The frozen 2026 dependency family resolves CUDA_Runtime_jll 0.23, whose
+  # packaged runtime is CUDA 13.3. Persist that choice before any downstream
+  # package is precompiled; auto-discovery can otherwise cache a no-driver
+  # platform during VM startup. A new Julia process is required after setting
+  # this preference.
+  "$JULIA" --project="$PROJECT_DIR" -e '
+      using CUDA
+      CUDA.set_runtime_version!(v"13.3")
+      println("CUDA runtime preference set to 13.3")
+  '
   "$JULIA" --project="$PROJECT_DIR" -e '
       using CUDA
       CUDA.precompile_runtime()

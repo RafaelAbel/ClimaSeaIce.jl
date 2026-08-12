@@ -86,6 +86,20 @@ The run exited successfully, uploaded surface, 3-D, averages, and checkpoint
 artifacts, and automatically shut down the GPU VM. The next milestone is the
 same configuration for 30 days.
 
+### Confirmed 30-day gate
+
+The same PR141 eight-layer, no-dynamics configuration completed its 30-day
+GPU milestone on 2026-08-12:
+
+- model time: **30 days**
+- final iteration: **2,160** (20-minute timestep)
+- output prefix:
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_30day_a100f_20260812/`
+
+It exited with code 0, uploaded surface, 3-D, averages, and checkpoint
+artifacts, and cleanly auto-shut down the A100 VM. The next milestone is the
+same configuration for a full 365-day year.
+
 For the January 2006 start, the runner also stages the four 2005 JRA55
 boundary records from the existing project bucket. This is the same forcing
 used at the start boundary and avoids a slow external ESGF download.

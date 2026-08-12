@@ -158,7 +158,7 @@ function build_ocean(config, grid;
         ),
         coriolis,
         timestepper = :SplitRungeKutta3,
-        materialize_buoyancy_gradients = OMIPSimulations.config_materialize_buoyancy_gradients(config),
+        materialize_buoyancy_gradients = true,
         free_surface = SplitExplicitFreeSurface(grid; substeps = 100),
         closure,
     )

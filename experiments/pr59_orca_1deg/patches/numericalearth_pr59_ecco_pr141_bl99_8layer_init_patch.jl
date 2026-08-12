@@ -6,6 +6,7 @@ using ClimaSeaIce
 using Dates
 using Downloads: Downloads
 using Adapt
+using Thermodynamics
 using Oceananigans.Architectures: architecture
 using Oceananigans.Grids: Center, MutableVerticalDiscretization
 using Oceananigans.Simulations: Simulation
@@ -76,6 +77,28 @@ function PR141_IC.ThreeEquationHeatFlux(sea_ice::Simulation{<:ClimaSeaIce.SeaIce
     return PR141_IC.ThreeEquationHeatFlux(conductive_flux, ice_temperature,
                                            convert(FT, heat_transfer_coefficient),
                                            convert(FT, salt_transfer_coefficient), friction_velocity)
+end
+
+# The frozen atmosphere--sea-ice interface stores the slab top temperature as
+# a field. For a PR141 column, expose the physical top layer through the same
+# 2-D indexing contract used by its GPU flux kernel.
+function PR141_IC.atmosphere_sea_ice_interface(grid,
+                                                atmosphere,
+                                                sea_ice::Simulation{<:ClimaSeaIce.SeaIceModel},
+                                                ai_flux_formulation,
+                                                temperature_formulation,
+                                                velocity_formulation)
+    fluxes = PR141_IC.AtmosphereSeaIceFluxes(grid)
+    humidity_formulation = PR141_IC.ImpureSaturationSpecificHumidity(Thermodynamics.Ice())
+    properties = PR141_IC.InterfaceProperties(humidity_formulation,
+                                               temperature_formulation,
+                                               velocity_formulation)
+    thermodynamics = sea_ice.model.ice_thermodynamics
+    interface_temperature = thermodynamics isa CSIT.ColumnEnergyThermodynamics ?
+                            PR141TopLayerTemperature(thermodynamics.fields.temperature) :
+                            thermodynamics.top_surface_temperature
+    return PR141_IC.AtmosphereInterface(fluxes, ai_flux_formulation,
+                                        interface_temperature, properties)
 end
 
 # Column boundary conditions own live Oceananigans fields, so they must be

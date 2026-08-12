@@ -136,8 +136,6 @@ function build_ocean(config, grid;
         Cᵇ,
         biharmonic_timescale,
         biharmonic_viscosity,
-        skew_flux_formulation,
-        eddy_slope_limiter,
         Cᵂu★,
     )
     closure = isnothing(additional_tracer_closure) ? closure : (closure..., additional_tracer_closure)

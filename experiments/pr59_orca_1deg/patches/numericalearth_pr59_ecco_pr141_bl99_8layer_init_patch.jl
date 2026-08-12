@@ -146,7 +146,7 @@ function build_ocean(config, grid;
     # integration; this leaves the requested PR141 sea-ice physics unchanged.
     time_discretization = implicit_vertical_advection ?
         VerticallyImplicitTimeDiscretization() : ExplicitTimeDiscretization()
-    momentum_advection = OMIPSimulations.config_momentum_advection(config)
+    momentum_advection = WENOVectorInvariant(order = 5, time_discretization)
 
     ocean = NumericalEarth.ocean_simulation(
         grid;

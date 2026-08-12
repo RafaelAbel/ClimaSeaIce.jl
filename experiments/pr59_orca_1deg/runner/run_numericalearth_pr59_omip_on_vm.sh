@@ -173,12 +173,22 @@ ClimaSeaIce = {path = \"$CLIMASEAICE_SRC\"}
 patch_numericalearth_api_compat() {
   local oceans_file="$SRC_ROOT/src/Oceans/Oceans.jl"
   local ocean_simulation_file="$SRC_ROOT/src/Oceans/ocean_simulation.jl"
+  local kpp_file="$PROJECT_DIR/src/KPP/kpp_vertical_diffusivity.jl"
+  local nemo_tke_file="$PROJECT_DIR/src/NEMOTKE/nemo_tke_vertical_diffusivity.jl"
 
   perl -0pi -e 's/using Oceananigans\.BoundaryConditions: DefaultBoundaryCondition, DiscreteBoundaryFunction,\n\s+FieldBoundaryConditions, FluxBoundaryCondition,\n\s+ImplicitExplicitFluxBoundaryCondition, ImplicitExplicitFlux, getbc/using Oceananigans.BoundaryConditions: DefaultBoundaryCondition, DiscreteBoundaryFunction,\n                                       FieldBoundaryConditions, FluxBoundaryCondition,\n                                       getbc/s' "$oceans_file"
 
   perl -0pi -e 's/\@inline net_flux\(condition\) = condition\n\@inline net_flux\(bc::MultipleFluxes\) = bc\.flux_field\n\@inline net_flux\(bc::DiscreteBoundaryFunction\) = net_flux\(bc\.func\)\n\@inline net_flux\(bc::[^\n]+\) = net_flux\(bc\.explicit_flux\)\n\n\@inline net_flux_coefficient\(condition\) = nothing\n\@inline net_flux_coefficient\(bc::[^\n]+\) = net_flux\(bc\.coefficient\)/\@inline net_flux(condition) = hasproperty(condition, :explicit_flux) ? net_flux(getproperty(condition, :explicit_flux)) : condition\n\@inline net_flux(bc::MultipleFluxes) = bc.flux_field\n\@inline net_flux(bc::DiscreteBoundaryFunction) = net_flux(bc.func)\n\n\@inline net_flux_coefficient(condition) = hasproperty(condition, :coefficient) ? net_flux(getproperty(condition, :coefficient)) : nothing/s' "$oceans_file"
 
   perl -0pi -e 's/ImplicitExplicitFluxBoundaryCondition\(/Oceananigans.BoundaryConditions.ImplicitExplicitFluxBoundaryCondition(/g' "$ocean_simulation_file"
+
+  # Oceananigans 0.108 owns this closure trait in TurbulenceClosures, not
+  # TimeSteppers. The archived KPP and NEMO-TKE implementations predate that
+  # namespace move. Both modules are always loaded by OMIPSimulations.
+  for closure_file in "$kpp_file" "$nemo_tke_file"; do
+    [[ -f "$closure_file" ]] || continue
+    sed -i 's/TimeSteppers\.time_discretization/Oceananigans.TurbulenceClosures.time_discretization/g' "$closure_file"
+  done
 }
 
 wire_clean_pr141_source() {

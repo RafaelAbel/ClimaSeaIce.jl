@@ -28,6 +28,56 @@ end
 Adapt.adapt_structure(to, T::PR141TopLayerTemperature) =
     PR141TopLayerTemperature(Adapt.adapt(to, T.temperature))
 
+# NumericalEarth's frozen ORCA coupling layer predates column thermodynamics:
+# its atmospheric skin-temperature and ocean three-equation closures require a
+# slab `ConductiveFlux` plus a 2-D internal temperature. The PR141 column owns
+# its conductive transport internally, but its bottom cell is directly usable
+# as that legacy internal-temperature field. Keep this bridge deliberately
+# local to the outer coupling; the eight-layer BL99 energy transport remains
+# the Maykut-Untersteiner column solver configured below.
+const PR141_LEGACY_INTERFACE_CONDUCTIVITY = 2.03
+const PR141_IC = NumericalEarth.EarthSystemModels.InterfaceComputations
+
+@inline pr141_legacy_interface_flux(FT) =
+    ClimaSeaIce.ConductiveFlux(FT; conductivity = convert(FT, PR141_LEGACY_INTERFACE_CONDUCTIVITY))
+
+function PR141_IC.default_ai_temperature(sea_ice::Simulation{<:ClimaSeaIce.SeaIceModel})
+    thermodynamics = sea_ice.model.ice_thermodynamics
+    if thermodynamics isa CSIT.ColumnEnergyThermodynamics
+        return PR141_IC.SkinTemperature(pr141_legacy_interface_flux(eltype(sea_ice.model.grid)))
+    end
+
+    # Preserve the frozen-baseline implementation for slab thermodynamics.
+    ice_flux = thermodynamics.internal_heat_flux
+    snow_thermo = sea_ice.model.snow_thermodynamics
+    internal_flux = isnothing(snow_thermo) ? ice_flux :
+                    CSIT.IceSnowConductiveFlux(snow_thermo.internal_heat_flux.conductivity,
+                                                ice_flux.conductivity)
+    return PR141_IC.SkinTemperature(internal_flux)
+end
+
+function PR141_IC.ThreeEquationHeatFlux(sea_ice::Simulation{<:ClimaSeaIce.SeaIceModel},
+                                         FT::DataType = Oceananigans.defaults.FloatType;
+                                         heat_transfer_coefficient = 0.0095,
+                                         salt_transfer_coefficient = heat_transfer_coefficient / 35,
+                                         friction_velocity = convert(FT, 0.002))
+    thermodynamics = sea_ice.model.ice_thermodynamics
+    if thermodynamics isa CSIT.ColumnEnergyThermodynamics
+        # `temperature[:, :, 1]` is the physical ocean-side cell of the
+        # PR141 column and satisfies the legacy AbstractField interface.
+        return PR141_IC.ThreeEquationHeatFlux(
+            pr141_legacy_interface_flux(FT), thermodynamics.fields.temperature,
+            convert(FT, heat_transfer_coefficient),
+            convert(FT, salt_transfer_coefficient), friction_velocity)
+    end
+
+    conductive_flux = thermodynamics.internal_heat_flux
+    ice_temperature = thermodynamics.top_surface_temperature
+    return PR141_IC.ThreeEquationHeatFlux(conductive_flux, ice_temperature,
+                                           convert(FT, heat_transfer_coefficient),
+                                           convert(FT, salt_transfer_coefficient), friction_velocity)
+end
+
 # Column boundary conditions own live Oceananigans fields, so they must be
 # adapted explicitly when the sea-ice model moves to the GPU.
 function Adapt.adapt_structure(to, boundary::CSIT.PrescribedEnergyFlux)

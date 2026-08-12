@@ -446,6 +446,12 @@ fi
 
 if [[ "$OMIP_CLEAN_PR59_BASELINE" == "true" ]]; then
   wire_clean_pr141_source
+  # The archived pre–June 8 NumericalEarth sources import the old
+  # `ImplicitExplicitFlux` binding, which is absent from the preserved
+  # Oceananigans 0.108 release. This small source-level shim is required to
+  # load that otherwise pinned baseline; it does not alter its ORCA setup or
+  # sea-ice physics.
+  patch_numericalearth_api_compat
 else
   patch_project_tomls
   patch_numericalearth_api_compat

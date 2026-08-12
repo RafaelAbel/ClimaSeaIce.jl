@@ -6,7 +6,6 @@ using ClimaSeaIce
 using Dates
 using Downloads: Downloads
 using Adapt
-using Thermodynamics
 using Oceananigans.Architectures: architecture
 using Oceananigans.Grids: Center, MutableVerticalDiscretization
 using Oceananigans.Simulations: Simulation
@@ -89,7 +88,8 @@ function PR141_IC.atmosphere_sea_ice_interface(grid,
                                                 temperature_formulation,
                                                 velocity_formulation)
     fluxes = PR141_IC.AtmosphereSeaIceFluxes(grid)
-    humidity_formulation = PR141_IC.ImpureSaturationSpecificHumidity(Thermodynamics.Ice())
+    humidity_formulation = PR141_IC.ImpureSaturationSpecificHumidity(
+        NumericalEarth.EarthSystemModels.AtmosphericThermodynamics.Ice())
     properties = PR141_IC.InterfaceProperties(humidity_formulation,
                                                temperature_formulation,
                                                velocity_formulation)

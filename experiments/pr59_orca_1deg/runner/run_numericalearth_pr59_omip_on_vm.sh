@@ -173,6 +173,7 @@ ClimaSeaIce = {path = \"$CLIMASEAICE_SRC\"}
 patch_numericalearth_api_compat() {
   local oceans_file="$SRC_ROOT/src/Oceans/Oceans.jl"
   local ocean_simulation_file="$SRC_ROOT/src/Oceans/ocean_simulation.jl"
+  local atmosphere_file="$PROJECT_DIR/src/atmosphere.jl"
   local kpp_file="$PROJECT_DIR/src/KPP/kpp_vertical_diffusivity.jl"
   local nemo_tke_file="$PROJECT_DIR/src/NEMOTKE/nemo_tke_vertical_diffusivity.jl"
 
@@ -181,6 +182,12 @@ patch_numericalearth_api_compat() {
   perl -0pi -e 's/\@inline net_flux\(condition\) = condition\n\@inline net_flux\(bc::MultipleFluxes\) = bc\.flux_field\n\@inline net_flux\(bc::DiscreteBoundaryFunction\) = net_flux\(bc\.func\)\n\@inline net_flux\(bc::[^\n]+\) = net_flux\(bc\.explicit_flux\)\n\n\@inline net_flux_coefficient\(condition\) = nothing\n\@inline net_flux_coefficient\(bc::[^\n]+\) = net_flux\(bc\.coefficient\)/\@inline net_flux(condition) = hasproperty(condition, :explicit_flux) ? net_flux(getproperty(condition, :explicit_flux)) : condition\n\@inline net_flux(bc::MultipleFluxes) = bc.flux_field\n\@inline net_flux(bc::DiscreteBoundaryFunction) = net_flux(bc.func)\n\n\@inline net_flux_coefficient(condition) = hasproperty(condition, :coefficient) ? net_flux(getproperty(condition, :coefficient)) : nothing/s' "$oceans_file"
 
   perl -0pi -e 's/ImplicitExplicitFluxBoundaryCondition\(/Oceananigans.BoundaryConditions.ImplicitExplicitFluxBoundaryCondition(/g' "$ocean_simulation_file"
+
+  # PR141 BL99 uses a vertical temperature column, while the archived JRA55
+  # albedo constructor expects a slab's 2-D `top_surface_temperature` field.
+  # Keep its existing snow/slab handling and use the PR141 top-layer view only
+  # when the old property is genuinely absent.
+  perl -0pi -e 's/Ts = isnothing\(snow_thermo\) \? sea_ice\.model\.ice_thermodynamics\.top_surface_temperature :\n\s*snow_thermo\.top_surface_temperature/ice_thermo = sea_ice.model.ice_thermodynamics\n    Ts = isnothing(snow_thermo) ?\n         (hasproperty(ice_thermo, :top_surface_temperature) ? ice_thermo.top_surface_temperature : Main.PR141TopLayerTemperature(ice_thermo.fields.temperature)) :\n         snow_thermo.top_surface_temperature/' "$atmosphere_file"
 
   # Oceananigans 0.108 predates the semi-implicit momentum-flux boundary
   # condition used by the archived NumericalEarth source. Supply the small

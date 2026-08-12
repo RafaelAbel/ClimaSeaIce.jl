@@ -15,6 +15,19 @@ import OMIPSimulations: build_ocean, build_sea_ice
 const CSIT = ClimaSeaIce.SeaIceThermodynamics
 const PR141_ICE_LAYERS = 8
 
+# The legacy OMIP radiation code indexes a 2-D surface-temperature object as
+# `[i, j, 1]`. PR141 stores an eight-layer temperature column instead; this
+# lightweight view maps that legacy access to the physical top ice layer.
+struct PR141TopLayerTemperature{T}
+    temperature :: T
+end
+
+@inline Base.getindex(T::PR141TopLayerTemperature, i, j, k) =
+    @inbounds T.temperature[i, j, PR141_ICE_LAYERS]
+
+Adapt.adapt_structure(to, T::PR141TopLayerTemperature) =
+    PR141TopLayerTemperature(Adapt.adapt(to, T.temperature))
+
 # Column boundary conditions own live Oceananigans fields, so they must be
 # adapted explicitly when the sea-ice model moves to the GPU.
 function Adapt.adapt_structure(to, boundary::CSIT.PrescribedEnergyFlux)

@@ -132,7 +132,10 @@ patch_project_tomls() {
     "$CLIMASEAICE_SRC/Project.toml"
   sed -i '/^__precompile__(false)$/d' "$CLIMASEAICE_SRC/src/ClimaSeaIce.jl"
   sed -i '1i __precompile__(false)' "$CLIMASEAICE_SRC/src/ClimaSeaIce.jl"
-  sed -i '/^fields(::Nothing) = NamedTuple()$/d' "$CLIMASEAICE_SRC/src/sea_ice_model.jl"
+  # Retain the SeaIceModel-level fallback: it is required when PR141 runs
+  # without ice dynamics. Remove the duplicate internal-thermodynamics
+  # definition instead, which avoids the Julia 1.12 duplicate-method issue.
+  sed -i '/^fields(::Nothing) = NamedTuple()$/d' "$CLIMASEAICE_SRC/src/SeaIceThermodynamics/nothing_thermodynamics.jl"
 
   sed -i 's/^ClimaSeaIce = "0.5.7, 0.6"$/ClimaSeaIce = "0.5, 0.6"/' "$SRC_ROOT/Project.toml"
   sed -i 's/^ClimaSeaIce = "0.5.5"$/ClimaSeaIce = "0.5, 0.6"/' "$SRC_ROOT/Project.toml"
@@ -285,12 +288,13 @@ wire_clean_pr141_source() {
   sed -i 's/^SeawaterPolynomials = "0.4"$/SeawaterPolynomials = "0.3, 0.4"/' \
     "$PROJECT_DIR/Project.toml"
 
-  # PR141 contains a duplicate `fields(::Nothing)` method in an included
-  # implementation file. Removing the duplicate and disabling incremental
-  # precompilation are required for this historical source on Julia 1.12.
+  # PR141 contains a duplicate `fields(::Nothing)` method in an internal
+  # thermodynamics file. Keep the SeaIceModel fallback (needed for
+  # `dynamics = nothing`) and remove only the duplicate; incremental
+  # precompilation is disabled for this historical source on Julia 1.12.
   sed -i '/^__precompile__(false)$/d' "$CLIMASEAICE_SRC/src/ClimaSeaIce.jl"
   sed -i '1i __precompile__(false)' "$CLIMASEAICE_SRC/src/ClimaSeaIce.jl"
-  sed -i '/^fields(::Nothing) = NamedTuple()$/d' "$CLIMASEAICE_SRC/src/sea_ice_model.jl"
+  sed -i '/^fields(::Nothing) = NamedTuple()$/d' "$CLIMASEAICE_SRC/src/SeaIceThermodynamics/nothing_thermodynamics.jl"
 
   for project in "$SRC_ROOT/Project.toml" "$PROJECT_DIR/Project.toml"; do
     sed -i '/^ClimaSeaIce = {path = ".*"}$/d' "$project"

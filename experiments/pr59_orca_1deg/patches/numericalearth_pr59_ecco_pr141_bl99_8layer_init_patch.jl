@@ -146,7 +146,7 @@ function build_ocean(config, grid;
     # integration; this leaves the requested PR141 sea-ice physics unchanged.
     time_discretization = implicit_vertical_advection ?
         VerticallyImplicitTimeDiscretization() : ExplicitTimeDiscretization()
-    momentum_advection = WENOVectorInvariant(order = 5, time_discretization = time_discretization)
+    momentum_advection = WENOVectorInvariant(order = 5)
 
     ocean = NumericalEarth.ocean_simulation(
         grid;
@@ -155,7 +155,6 @@ function build_ocean(config, grid;
         tracer_advection = WENO(
             order = 7;
             minimum_buffer_upwind_order = 3,
-            time_discretization,
         ),
         coriolis,
         timestepper = :SplitRungeKutta3,

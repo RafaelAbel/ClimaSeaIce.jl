@@ -11,6 +11,9 @@ VM_NAME="${VM_NAME:-hens-dev-a100-arctic-pr141-smoke}"
 CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-/private/tmp/sea-ice-gcloud-current.Of91dI}"
 RUN_LABEL="${RUN_LABEL:-pr141_bl99_8layer_orca1_5day_20260811}"
 STOP_TIME="${STOP_TIME:-5days}"
+# Keep failed five-day debugging runs available by default. Longer milestone
+# launches can explicitly restore the normal failure shutdown behaviour.
+SHUTDOWN_ON_FAILURE="${SHUTDOWN_ON_FAILURE:-false}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 EXPERIMENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -80,7 +83,7 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone=
     OMIP_UPLOAD_OUTPUTS='true' \
     OMIP_OUTPUT_BUCKET_PREFIX='outputs/numericalearth_pr59/a100_ecco_${RUN_LABEL}' \
     OMIP_SHUTDOWN_ON_EXIT='true' \
-    OMIP_SHUTDOWN_ON_FAILURE='false' \
+    OMIP_SHUTDOWN_ON_FAILURE='${SHUTDOWN_ON_FAILURE}' \
     OMIP_LAUNCHER_LOG='${REMOTE_LOG}' \
     OMIP_OUTPUT_DIR='/home/rafaelabel/numericalearth_pr59_a100_ecco_${RUN_LABEL}' \
     OMIP_SEA_ICE_THERMODYNAMICS='pr141_bl99' \

@@ -190,6 +190,8 @@ patch_numericalearth_api_compat() {
   cat > "$SRC_ROOT/src/Oceans/implicit_flux_compat.jl" <<'JULIA'
 if !isdefined(Oceananigans.BoundaryConditions, :ImplicitExplicitFluxBoundaryCondition)
     @eval Oceananigans.BoundaryConditions begin
+        using ..Architectures: on_architecture
+
         struct CompatImplicitExplicitFlux{E, C}
             explicit_flux :: E
             coefficient   :: C
@@ -198,9 +200,9 @@ if !isdefined(Oceananigans.BoundaryConditions, :ImplicitExplicitFluxBoundaryCond
         Adapt.adapt_structure(to, c::CompatImplicitExplicitFlux) =
             CompatImplicitExplicitFlux(Adapt.adapt(to, c.explicit_flux), Adapt.adapt(to, c.coefficient))
 
-        Oceananigans.Architectures.on_architecture(to, c::CompatImplicitExplicitFlux) =
-            CompatImplicitExplicitFlux(Oceananigans.Architectures.on_architecture(to, c.explicit_flux),
-                                       Oceananigans.Architectures.on_architecture(to, c.coefficient))
+        on_architecture(to, c::CompatImplicitExplicitFlux) =
+            CompatImplicitExplicitFlux(on_architecture(to, c.explicit_flux),
+                                       on_architecture(to, c.coefficient))
 
         function ImplicitExplicitFluxBoundaryCondition(explicit_flux; coefficient,
                                                        parameters = nothing,

@@ -32,6 +32,7 @@ OMIP_JRA55_PREVIOUS_YEAR_BUCKET_PREFIX="${OMIP_JRA55_PREVIOUS_YEAR_BUCKET_PREFIX
 OMIP_UPLOAD_OUTPUTS="${OMIP_UPLOAD_OUTPUTS:-false}"
 OMIP_OUTPUT_BUCKET_PREFIX="${OMIP_OUTPUT_BUCKET_PREFIX:-outputs/numericalearth_pr59}"
 OMIP_SHUTDOWN_ON_EXIT="${OMIP_SHUTDOWN_ON_EXIT:-false}"
+OMIP_SHUTDOWN_ON_FAILURE="${OMIP_SHUTDOWN_ON_FAILURE:-true}"
 OMIP_LAUNCHER_LOG="${OMIP_LAUNCHER_LOG:-}"
 OMIP_INIT_SOURCE="${OMIP_INIT_SOURCE:-glorys}"
 OMIP_HYDRATE_FROM_BUCKET="${OMIP_HYDRATE_FROM_BUCKET:-true}"
@@ -624,7 +625,10 @@ cleanup_on_exit() {
 
   upload_outputs_to_bucket || upload_status=$?
   upload_launcher_log_to_bucket || log_upload_status=$?
-  if [[ "$RUNNER_OWNS_LOCK" == "true" ]]; then
+  # Leave failed short-cycle debug runs available for immediate inspection,
+  # while retaining automatic shutdown for a successful completion.
+  if [[ "$RUNNER_OWNS_LOCK" == "true" ]] &&
+     { (( exit_code == 0 )) || [[ "$OMIP_SHUTDOWN_ON_FAILURE" == "true" ]]; }; then
     shutdown_vm_on_exit || shutdown_status=$?
   fi
 

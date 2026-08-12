@@ -80,6 +80,7 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone=
     OMIP_UPLOAD_OUTPUTS='true' \
     OMIP_OUTPUT_BUCKET_PREFIX='outputs/numericalearth_pr59/a100_ecco_${RUN_LABEL}' \
     OMIP_SHUTDOWN_ON_EXIT='true' \
+    OMIP_SHUTDOWN_ON_FAILURE='false' \
     OMIP_LAUNCHER_LOG='${REMOTE_LOG}' \
     OMIP_OUTPUT_DIR='/home/rafaelabel/numericalearth_pr59_a100_ecco_${RUN_LABEL}' \
     OMIP_SEA_ICE_THERMODYNAMICS='pr141_bl99' \

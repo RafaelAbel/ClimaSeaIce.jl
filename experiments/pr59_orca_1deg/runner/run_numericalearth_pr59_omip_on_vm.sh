@@ -182,6 +182,43 @@ patch_numericalearth_api_compat() {
 
   perl -0pi -e 's/ImplicitExplicitFluxBoundaryCondition\(/Oceananigans.BoundaryConditions.ImplicitExplicitFluxBoundaryCondition(/g' "$ocean_simulation_file"
 
+  # Oceananigans 0.108 predates the semi-implicit momentum-flux boundary
+  # condition used by the archived NumericalEarth source. Supply the small
+  # representation adapter before the Oceans module closes. The explicit
+  # component remains the normal flux boundary condition; the coefficient is
+  # preserved on the condition for the old source's flux bookkeeping.
+  cat > "$SRC_ROOT/src/Oceans/implicit_flux_compat.jl" <<'JULIA'
+if !isdefined(Oceananigans.BoundaryConditions, :ImplicitExplicitFluxBoundaryCondition)
+    @eval Oceananigans.BoundaryConditions begin
+        struct CompatImplicitExplicitFlux{E, C}
+            explicit_flux :: E
+            coefficient   :: C
+        end
+
+        Adapt.adapt_structure(to, c::CompatImplicitExplicitFlux) =
+            CompatImplicitExplicitFlux(Adapt.adapt(to, c.explicit_flux), Adapt.adapt(to, c.coefficient))
+
+        Oceananigans.Architectures.on_architecture(to, c::CompatImplicitExplicitFlux) =
+            CompatImplicitExplicitFlux(Oceananigans.Architectures.on_architecture(to, c.explicit_flux),
+                                       Oceananigans.Architectures.on_architecture(to, c.coefficient))
+
+        function ImplicitExplicitFluxBoundaryCondition(explicit_flux; coefficient,
+                                                       parameters = nothing,
+                                                       discrete_form = false,
+                                                       field_dependencies = ())
+            Fₑ = materialize_condition(explicit_flux, parameters, discrete_form, field_dependencies)
+            λ  = materialize_condition(coefficient, parameters, discrete_form, field_dependencies)
+            return BoundaryCondition(Flux(), CompatImplicitExplicitFlux(Fₑ, λ))
+        end
+
+        @inline getbc(condition::CompatImplicitExplicitFlux, args...) =
+            getbc(condition.explicit_flux, args...)
+    end
+end
+JULIA
+  sed -i '/^include("implicit_flux_compat.jl")$/d' "$oceans_file"
+  sed -i '/^end # module$/i include("implicit_flux_compat.jl")' "$oceans_file"
+
   # Oceananigans 0.108 owns this closure trait in TurbulenceClosures, not
   # TimeSteppers. The archived KPP and NEMO-TKE implementations predate that
   # namespace move. Both modules are always loaded by OMIPSimulations.

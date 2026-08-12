@@ -72,6 +72,20 @@ them with the dedicated adapter, writes diagnostics including `surface.jld2`,
 uploads outputs to the bucket, and shuts the VM down on exit. The
 old-thermodynamics path above remains unchanged.
 
+### Confirmed five-day gate
+
+The PR141 eight-layer, no-dynamics GPU smoke run completed on 2026-08-12:
+
+- model time: **5 days**
+- final iteration: **360** (20-minute timestep)
+- output prefix:
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_5day_cleanbaseline_a100c_retry18_20260812/`
+- verified artifact: `surface.jld2`, containing `siconc`
+
+The run exited successfully, uploaded surface, 3-D, averages, and checkpoint
+artifacts, and automatically shut down the GPU VM. The next milestone is the
+same configuration for 30 days.
+
 For the January 2006 start, the runner also stages the four 2005 JRA55
 boundary records from the existing project bucket. This is the same forcing
 used at the start boundary and avoids a slow external ESGF download.

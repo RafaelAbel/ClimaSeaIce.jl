@@ -42,6 +42,21 @@ Adapt.adapt_structure(to, T::PR141TopLayerTemperature) =
 # the Maykut-Untersteiner column solver configured below.
 const PR141_LEGACY_INTERFACE_CONDUCTIVITY = 2.03
 const PR141_IC = NumericalEarth.EarthSystemModels.InterfaceComputations
+const PR141_ESM = NumericalEarth.EarthSystemModels
+
+# Oceananigans 0.108 calls a first-step preparation hook before invoking the
+# archived coupled-model stepper. The June baseline's EarthSystemModel predates
+# that hook, so initialize its exchange state exactly once using its existing
+# update_state! implementation.
+function Oceananigans.TimeSteppers.maybe_prepare_first_time_step!(
+    coupled_model::PR141_ESM.EarthSystemModel, Δt, callbacks)
+    if coupled_model.clock.iteration == 0
+        coupled_model.clock.last_Δt = Δt
+        Oceananigans.TimeSteppers.reconcile_state!(coupled_model)
+        Oceananigans.TimeSteppers.update_state!(coupled_model, callbacks)
+    end
+    return nothing
+end
 
 @inline pr141_legacy_interface_flux(FT) =
     ClimaSeaIce.ConductiveFlux(FT; conductivity = convert(FT, PR141_LEGACY_INTERFACE_CONDUCTIVITY))

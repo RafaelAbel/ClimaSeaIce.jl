@@ -541,6 +541,20 @@ if [[ ! -f "$INSTANTIATE_STAMP" ]]; then
   touch "$INSTANTIATE_STAMP"
 fi
 
+# Pkg can precompile CUDA's runtime-discovery JLL before the GPU driver is
+# usable (notably just after a VM has booted). Rebuild and validate that cache
+# only after staging is complete, before the long coupled launch. This turns a
+# misleading later "a CUDA GPU was not found" error into an immediate, useful
+# failure and keeps all GPU milestones on the same reliable startup path.
+if [[ "${OMIP_ARCH:-cpu}" == "gpu" ]]; then
+  "$JULIA" --project="$PROJECT_DIR" -e '
+      using CUDA
+      CUDA.precompile_runtime()
+      CUDA.functional() || error("CUDA is not functional after runtime precompilation")
+      println("CUDA runtime verified: ", only(CUDA.devices()))
+  '
+fi
+
 export OMIP_FORCING_DIR
 export OMIP_RESTORING_DIR
 export OMIP_GLORYS_DIR

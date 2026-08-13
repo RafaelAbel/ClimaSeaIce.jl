@@ -90,6 +90,29 @@ artifacts, and automatically shut down the GPU VM. This supersedes the earlier
 five-day output, which demonstrated the launch path but predated the coupled
 ice-volume update. The next milestone is the same configuration for 30 days.
 
+### Latest physical five-day gate
+
+The earlier coupled run developed an unphysical basal-conduction instability:
+although it completed, its maximum thickness reached 662 m. It is not a valid
+thermodynamic milestone. Commit `37368cd` restricts column basal conduction to
+consolidated ice, consistent with the slab model's interior-conduction rule.
+
+The resulting replacement run completed on 2026-08-13 and is the current
+five-day gate for longer PR141 runs:
+
+- source commit: `37368cd`
+- model time: **5 days**, iteration **360** (20-minute timestep)
+- output prefix:
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_consolidated_5day_l4_20260813/`
+- Arctic 15%-threshold SIE: **15.075 → 15.158 million km²**
+- maximum ice thickness: **4.54 m** throughout the run
+- verified artifacts: `surface.jld2` (including `siconc`), 3-D fields,
+  averages, checkpoint, and launcher log
+
+The process exited successfully, uploaded all output artifacts, and the GPU VM
+automatically shut down. The next milestone is a 30-day run from this exact
+commit; a 365-day run must use the validated 30-day configuration.
+
 ### Confirmed coupled 30-day gate
 
 The corrected PR141 eight-layer, no-dynamics configuration completed its

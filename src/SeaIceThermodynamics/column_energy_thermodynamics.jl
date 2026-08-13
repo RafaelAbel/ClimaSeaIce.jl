@@ -329,7 +329,7 @@ struct ColumnThermodynamicFields{E, S, T, LF, BS, TE, TS}
     temperature_salinity_derivative :: TS
 end
 
-struct ColumnAuxiliaryFields{K, KE, KS, DE, CS, I, SR, BR, RHS, A, B, C}
+struct ColumnAuxiliaryFields{K, KE, KS, DE, CS, I, SR, RHS, A, B, C}
     thermal_conductivity :: K
     energy_diffusivity :: KE
     salinity_diffusivity :: KS
@@ -337,7 +337,6 @@ struct ColumnAuxiliaryFields{K, KE, KS, DE, CS, I, SR, BR, RHS, A, B, C}
     salinity_coupling_diffusivity :: CS
     shortwave_flux :: I
     surface_stefan_residual_flux :: SR
-    basal_stefan_residual_flux :: BR
     energy_rhs :: RHS
     lower_diagonal :: A
     diagonal :: B
@@ -400,7 +399,6 @@ function Adapt.adapt_structure(to, auxiliary::ColumnAuxiliaryFields)
                                  Adapt.adapt(to, auxiliary.salinity_coupling_diffusivity),
                                  Adapt.adapt(to, auxiliary.shortwave_flux),
                                  Adapt.adapt(to, auxiliary.surface_stefan_residual_flux),
-                                 Adapt.adapt(to, auxiliary.basal_stefan_residual_flux),
                                  Adapt.adapt(to, auxiliary.energy_rhs),
                                  Adapt.adapt(to, auxiliary.lower_diagonal),
                                  Adapt.adapt(to, auxiliary.diagonal),
@@ -453,7 +451,6 @@ function column_auxiliary_fields(grid)
     salinity_coupling_diffusivity = Field{Center, Center, Face}(grid)
     shortwave_flux = Field{Center, Center, Face}(grid)
     surface_stefan_residual_flux = Field{Center, Center, Nothing}(grid)
-    basal_stefan_residual_flux = Field{Center, Center, Nothing}(grid)
     energy_rhs = Field{Center, Center, Center}(grid)
     lower_diagonal = Field{Center, Center, Center}(grid)
     diagonal = Field{Center, Center, Center}(grid)
@@ -466,7 +463,6 @@ function column_auxiliary_fields(grid)
                                  salinity_coupling_diffusivity,
                                  shortwave_flux,
                                  surface_stefan_residual_flux,
-                                 basal_stefan_residual_flux,
                                  energy_rhs,
                                  lower_diagonal,
                                  diagonal,
@@ -2433,61 +2429,11 @@ function initialize_column_vertical_metric!(model,
     return nothing
 end
 
-@kernel function _compute_column_basal_stefan_residual_flux!(residual_flux,
-                                                              fields,
-                                                              auxiliary,
-                                                              grid,
-                                                              boundary_conditions,
-                                                              relation,
-                                                              Δt)
-    i, j = @index(Global, NTuple)
-    Nz = size(grid, 3)
-
-    @inbounds begin
-        # The column coordinate increases from the ice-ocean interface toward
-        # the atmosphere. A positive conductive flux therefore carries heat
-        # upward, away from the ocean interface, and freezes ice at the base.
-        # At the lower boundary, a positive prescribed column flux points out
-        # of the column, so it adds directly to the Stefan residual below.
-        Qᶜ = if Nz > 1
-            K = auxiliary.thermal_conductivity[i, j, 2]
-            Tᵇ = fields.temperature[i, j, 1]
-            T⁺ = fields.temperature[i, j, 2]
-            Δz = current_column_face_spacing(i, j, 2, grid)
-            K * (Tᵇ - T⁺) / Δz
-        else
-            zero(Δt)
-        end
-
-        Qᵇ = column_bottom_boundary_energy_flux(boundary_conditions.bottom,
-                                                 i, j, 1, grid, auxiliary,
-                                                 fields, relation, Δt)
-        residual_flux[i, j, 1] = Qᶜ + Qᵇ
-    end
-end
-
-function compute_column_basal_stefan_residual_flux!(residual_flux,
-                                                     thermodynamics::ColumnEnergyThermodynamics,
-                                                     Δt)
-    grid = thermodynamics.fields.internal_energy.grid
-    launch!(architecture(grid), grid, :xy,
-            _compute_column_basal_stefan_residual_flux!,
-            residual_flux,
-            thermodynamics.fields,
-            thermodynamics.auxiliary,
-            grid,
-            thermodynamics.boundary_conditions,
-            thermodynamics.relation,
-            Δt)
-    return nothing
-end
-
 @kernel function _column_thermodynamic_ice_volume_step!(ice_thickness,
                                                          ice_concentration,
                                                          ice_consolidation_thickness,
                                                          sea_ice_density,
-                                                         surface_residual_flux,
-                                                         basal_residual_flux,
+                                                         residual_flux,
                                                          phase_transitions,
                                                          concentration_evolution,
                                                          z_coordinate,
@@ -2499,7 +2445,7 @@ end
         ℵⁿ = ice_concentration[i, j, 1]
         hᶜ = ice_consolidation_thickness[i, j, 1]
         ρi = sea_ice_density[i, j, 1]
-        δQ = surface_residual_flux[i, j, 1] + basal_residual_flux[i, j, 1]
+        δQ = residual_flux[i, j, 1]
 
         # Coupled interface fluxes are per grid-cell area. Convert the Stefan
         # residual directly to the grid-cell volume tendency used by the slab
@@ -2534,19 +2480,12 @@ function thermodynamic_time_step!(model,
     grid = model.grid
 
     # The melting-limited top boundary routes energy that would take the top
-    # layer past complete melt into a residual. At the base, the resolved
-    # conductive gradient and ocean boundary flux form the complementary
-    # Stefan residual. Apply both interface contributions to the model volume
-    # before the moving-grid column solve remaps the eight-layer state.
-    compute_column_thermodynamic_diagnostics!(thermodynamics)
-    compute_column_transport_coefficients!(thermodynamics)
+    # layer past complete melt into a residual. The column energy solve itself
+    # handles conductive and lower-boundary energy transport; treating that
+    # gradient as an additional Stefan source would create ice volume twice.
     compute_column_surface_stefan_residual_flux!(thermodynamics.auxiliary.surface_stefan_residual_flux,
                                                  thermodynamics,
                                                  Δt)
-    compute_column_basal_stefan_residual_flux!(thermodynamics.auxiliary.basal_stefan_residual_flux,
-                                               thermodynamics,
-                                               Δt)
-
     if grid.z isa MutableVerticalDiscretization
         launch!(architecture(grid), grid, :xy,
                 _column_thermodynamic_ice_volume_step!,
@@ -2555,7 +2494,6 @@ function thermodynamic_time_step!(model,
                 model.ice_consolidation_thickness,
                 model.sea_ice_density,
                 thermodynamics.auxiliary.surface_stefan_residual_flux,
-                thermodynamics.auxiliary.basal_stefan_residual_flux,
                 thermodynamics.relation.phase_transitions,
                 thermodynamics.concentration_evolution,
                 grid.z,

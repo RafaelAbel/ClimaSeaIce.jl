@@ -1446,7 +1446,7 @@ end
     @test σ ≈ h
 end
 
-@testset "Column thermodynamics adds basal conductive growth to volume" begin
+@testset "Column internal gradients do not create Stefan volume" begin
     grid = RectilinearGrid(size = (1, 1, 2),
                            x = (0, 1),
                            y = (0, 1),
@@ -1481,13 +1481,10 @@ end
                                                                nothing,
                                                                3600.0)
 
-    h = first(interior(model.ice_thickness))
-    basal_residual = first(interior(thermodynamics.auxiliary.basal_stefan_residual_flux))
-    σ = grid.z.σᶜᶜⁿ[1, 1, 1]
-
-    @test basal_residual > 0
-    @test h > 1
-    @test σ ≈ h
+    @test first(interior(thermodynamics.auxiliary.surface_stefan_residual_flux)) == 0
+    @test first(interior(model.ice_thickness)) ≈ 1.0
+    @test first(interior(model.ice_concentration)) ≈ 1.0
+    @test grid.z.σᶜᶜⁿ[1, 1, 1] ≈ 1.0
 end
 
 @testset "Conservative column remap" begin

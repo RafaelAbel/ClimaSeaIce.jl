@@ -124,19 +124,19 @@ year on an A100 on 2026-08-13:
 - launcher outcome: exit code **0**, followed by output upload and automatic
   VM shutdown
 
-The surface diagnostic contains `siconc`; the final, readable records give an
-Arctic 15%-threshold extent of **3.486 million km² at day 360** and **3.482
-million km² at day 365**. During the run, independent diagnostic checks
-confirmed that `sithick` and `siconc` evolved (at day 70, 8,018 cells had
-changed in each field, with maximum changes of 2.133 m and 0.970,
-respectively).
+The surface diagnostic contains `siconc`. The complete five-day Arctic
+15%-threshold SIE record was recovered from the retained run directory and is
+stored beside the output as
+`analysis/pr141_orca1_year_arctic_sie.csv`. It spans day 0 through day 365;
+the final values are **3.486 million km² at day 360** and **3.482 million km²
+at day 365**. During the run, independent diagnostic checks confirmed that
+`sithick` and `siconc` evolved (at day 70, 8,018 cells had changed in each
+field, with maximum changes of 2.133 m and 0.970, respectively).
 
-The uploaded `surface_part1.jld2` is structurally unreadable after transfer,
-whereas `surface_part2.jld2` is readable. This prevents reconstructing the
-complete five-day surface-extent series from the uploaded artifacts and must
-be fixed before using this year run for a full seasonal SIE comparison. It
-does not affect the verified model completion, final checkpoint, or the
-readable final surface diagnostics.
+The original multi-part JLD2 outputs remain in the bucket. A local download
+of the large composite `surface_part1.jld2` could not be read with the local
+client, but the retained VM copy was valid and produced the recovered CSV.
+The recovery VM was shut down immediately afterwards.
 
 For the January 2006 start, the runner also stages the four 2005 JRA55
 boundary records from the existing project bucket. This is the same forcing

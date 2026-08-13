@@ -90,19 +90,25 @@ artifacts, and automatically shut down the GPU VM. This supersedes the earlier
 five-day output, which demonstrated the launch path but predated the coupled
 ice-volume update. The next milestone is the same configuration for 30 days.
 
-### Confirmed 30-day gate
+### Confirmed coupled 30-day gate
 
-The same PR141 eight-layer, no-dynamics configuration completed its 30-day
-GPU milestone on 2026-08-12:
+The corrected PR141 eight-layer, no-dynamics configuration completed its
+30-day GPU milestone on 2026-08-13:
 
 - model time: **30 days**
 - final iteration: **2,160** (20-minute timestep)
 - output prefix:
-  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_30day_a100f_20260812/`
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_coupled_30day_t4_20260813/`
+- verified artifact: `surface.jld2`, containing `siconc`
+- verified evolution over the 30-day records: `sithick` changed in 6,730
+  cells (maximum absolute change 1.123 m) and `siconc` changed in 6,746 cells
+  (maximum absolute change 0.970)
 
 It exited with code 0, uploaded surface, 3-D, averages, and checkpoint
-artifacts, and cleanly auto-shut down the A100 VM. The next milestone is the
-same configuration for a full 365-day year.
+artifacts, and cleanly auto-shut down the GPU VM. This is the coupled
+ice-volume path; it supersedes the earlier 30-day output that predated the
+coupling fix. The next milestone is the same configuration for a full 365-day
+year.
 
 For the January 2006 start, the runner also stages the four 2005 JRA55
 boundary records from the existing project bucket. This is the same forcing

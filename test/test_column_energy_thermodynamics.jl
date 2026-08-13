@@ -1532,6 +1532,45 @@ end
     @test first(interior(model.ice_concentration)) == 1.0
 end
 
+@testset "Unconsolidated ice does not use the column basal conductive flux" begin
+    grid = RectilinearGrid(size = (1, 1, 2),
+                           x = (0, 1),
+                           y = (0, 1),
+                           z = MutableVerticalDiscretization((0, 1)),
+                           topology = (Bounded, Bounded, Bounded))
+
+    relation = QuadraticLiquidusEnergyRelation(Float64)
+    thermodynamics = prescribed_salinity_enthalpy_thermodynamics(
+        grid;
+        relation,
+        salinity_profile = 0.0,
+        energy_transport = ConductiveTemperatureTransport(conductivity = 2.0),
+        boundary_conditions = ColumnBoundaryConditions(
+            top = MeltingLimitedSurfaceFlux(flux = 0.0),
+            bottom = PrescribedEnergyFlux(flux = 0.0)),
+    )
+    set!(thermodynamics;
+         bulk_salinity = 0.0,
+         temperature = (x, y, z) -> -1 - 8z)
+
+    model = SeaIceModel(grid;
+                        ice_thermodynamics = thermodynamics,
+                        phase_transitions = relation.phase_transitions,
+                        top_heat_flux = 0,
+                        bottom_heat_flux = 0,
+                        ice_consolidation_thickness = 0.05)
+    set!(model, h = 0.025, ℵ = 1.0)
+    ClimaSeaIce.SeaIceThermodynamics.initialize_column_vertical_metric!(model, thermodynamics)
+
+    ClimaSeaIce.SeaIceThermodynamics.thermodynamic_time_step!(model,
+                                                               thermodynamics,
+                                                               nothing,
+                                                               3600.0)
+
+    @test first(interior(thermodynamics.auxiliary.basal_stefan_residual_flux)) == 0
+    @test first(interior(model.ice_thickness)) == 0.025
+end
+
 @testset "Conservative column remap" begin
     source_faces = [0.0, 0.15, 0.4, 1.0]
     source_values = [-4.0, -2.0, 3.0]

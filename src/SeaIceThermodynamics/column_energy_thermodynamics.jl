@@ -2436,6 +2436,7 @@ end
 @kernel function _compute_column_basal_stefan_residual_flux!(residual_flux,
                                                               ice_thickness,
                                                               ice_concentration,
+                                                              ice_consolidation_thickness,
                                                               fields,
                                                               auxiliary,
                                                               grid,
@@ -2448,13 +2449,16 @@ end
     @inbounds begin
         h = ice_thickness[i, j, 1]
         ℵ = ice_concentration[i, j, 1]
+        hᶜ = ice_consolidation_thickness[i, j, 1]
 
         # A column temperature profile is allocated everywhere, including
         # open water. It is not a physical ice--ocean interface until the
-        # cell actually contains ice. Without this gate, the arbitrary
-        # initialization profile in empty cells is interpreted as a basal
-        # conductive flux and nucleates ice across the whole grid.
-        if h > zero(h) && ℵ > zero(ℵ)
+        # cell actually contains *consolidated* ice. This matches the slab
+        # thermodynamics, which only enables its interior conductive flux
+        # once h >= hᶜ. Without this gate, the initialized column gradient in
+        # open water or new, unconsolidated ice is interpreted as basal
+        # conduction and can create unphysical volume.
+        if h >= hᶜ && ℵ > zero(ℵ)
             Qᶜ = if Nz > 1
                 K = auxiliary.thermal_conductivity[i, j, 2]
                 Tᵇ = fields.temperature[i, j, 1]
@@ -2488,6 +2492,7 @@ function compute_column_basal_stefan_residual_flux!(residual_flux,
             residual_flux,
             model.ice_thickness,
             model.ice_concentration,
+            model.ice_consolidation_thickness,
             thermodynamics.fields,
             thermodynamics.auxiliary,
             grid,

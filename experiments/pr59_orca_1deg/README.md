@@ -110,6 +110,34 @@ ice-volume path; it supersedes the earlier 30-day output that predated the
 coupling fix. The next milestone is the same configuration for a full 365-day
 year.
 
+### Confirmed coupled 365-day run
+
+The same PR141 BL99 eight-layer, no-dynamics configuration completed a full
+year on an A100 on 2026-08-13:
+
+- source commit: `ab929a3`
+- model time: **365 days**
+- final iteration: **26,280** (20-minute timestep)
+- output prefix:
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_coupled_365day_a100_20260813/`
+- final checkpoint: `checkpoint_iteration25920.jld2`
+- launcher outcome: exit code **0**, followed by output upload and automatic
+  VM shutdown
+
+The surface diagnostic contains `siconc`; the final, readable records give an
+Arctic 15%-threshold extent of **3.486 million km² at day 360** and **3.482
+million km² at day 365**. During the run, independent diagnostic checks
+confirmed that `sithick` and `siconc` evolved (at day 70, 8,018 cells had
+changed in each field, with maximum changes of 2.133 m and 0.970,
+respectively).
+
+The uploaded `surface_part1.jld2` is structurally unreadable after transfer,
+whereas `surface_part2.jld2` is readable. This prevents reconstructing the
+complete five-day surface-extent series from the uploaded artifacts and must
+be fixed before using this year run for a full seasonal SIE comparison. It
+does not affect the verified model completion, final checkpoint, or the
+readable final surface diagnostics.
+
 For the January 2006 start, the runner also stages the four 2005 JRA55
 boundary records from the existing project bucket. This is the same forcing
 used at the start boundary and avoids a slow external ESGF download.

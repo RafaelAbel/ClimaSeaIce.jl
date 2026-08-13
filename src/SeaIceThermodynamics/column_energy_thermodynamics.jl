@@ -2452,14 +2452,13 @@ end
         hᶜ = ice_consolidation_thickness[i, j, 1]
 
         # A column temperature profile is allocated everywhere, including
-        # open water. It is not a physical ice--ocean interface until the
-        # cell actually contains *consolidated* ice. This matches the slab
-        # thermodynamics, which only enables its interior conductive flux
-        # once h >= hᶜ. Without this gate, the initialized column gradient in
-        # open water or new, unconsolidated ice is interpreted as basal
-        # conduction and can create unphysical volume.
-        if h >= hᶜ && ℵ > zero(ℵ)
-            Qᶜ = if Nz > 1
+        # open water. Its initialized gradient is not a physical ice--ocean
+        # interface until the cell contains *consolidated* ice, so only the
+        # interior conductive part is gated. The prescribed ocean boundary
+        # flux must remain active for thin and newly forming ice: it is the
+        # physical source of lateral ice growth in the concentration scheme.
+        Qᶜ = if h >= hᶜ && ℵ > zero(ℵ)
+            if Nz > 1
                 K = auxiliary.thermal_conductivity[i, j, 2]
                 Tᵇ = fields.temperature[i, j, 1]
                 T⁺ = fields.temperature[i, j, 2]
@@ -2468,17 +2467,17 @@ end
             else
                 zero(Δt)
             end
-
-            # The lower-column convention is positive upward/out of the
-            # column. Thus upward conduction plus the prescribed lower-face
-            # flux is the Stefan residual: positive grows basal ice.
-            Qᵇ = column_bottom_boundary_energy_flux(boundary_conditions.bottom,
-                                                     i, j, 1, grid, auxiliary,
-                                                     fields, relation, Δt)
-            residual_flux[i, j, 1] = Qᶜ + Qᵇ
         else
-            residual_flux[i, j, 1] = zero(h)
+            zero(h)
         end
+
+        # The lower-column convention is positive upward/out of the column.
+        # Thus upward conduction plus the prescribed lower-face flux is the
+        # Stefan residual: positive grows basal ice.
+        Qᵇ = column_bottom_boundary_energy_flux(boundary_conditions.bottom,
+                                                 i, j, 1, grid, auxiliary,
+                                                 fields, relation, Δt)
+        residual_flux[i, j, 1] = Qᶜ + Qᵇ
     end
 end
 

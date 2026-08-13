@@ -72,19 +72,23 @@ them with the dedicated adapter, writes diagnostics including `surface.jld2`,
 uploads outputs to the bucket, and shuts the VM down on exit. The
 old-thermodynamics path above remains unchanged.
 
-### Confirmed five-day gate
+### Confirmed five-day coupled gate
 
-The PR141 eight-layer, no-dynamics GPU smoke run completed on 2026-08-12:
+The corrected PR141 eight-layer, no-dynamics GPU smoke run completed on 2026-08-12:
 
 - model time: **5 days**
 - final iteration: **360** (20-minute timestep)
 - output prefix:
-  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_5day_cleanbaseline_a100c_retry18_20260812/`
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_coupled_5day_t4_retry2_20260813/`
 - verified artifact: `surface.jld2`, containing `siconc`
+- verified evolution over the five-day records: `sithick` changed in 5,573
+  cells (maximum absolute change 0.116 m) and `siconc` changed in 5,589 cells
+  (maximum absolute change 0.463)
 
 The run exited successfully, uploaded surface, 3-D, averages, and checkpoint
-artifacts, and automatically shut down the GPU VM. The next milestone is the
-same configuration for 30 days.
+artifacts, and automatically shut down the GPU VM. This supersedes the earlier
+five-day output, which demonstrated the launch path but predated the coupled
+ice-volume update. The next milestone is the same configuration for 30 days.
 
 ### Confirmed 30-day gate
 

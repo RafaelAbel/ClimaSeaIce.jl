@@ -144,13 +144,17 @@ end
                                                             i,
                                                             j) where
                                                             {F <: Union{Oceananigans.Fields.AbstractField, AbstractArray}}
-    return pr141_boundary_flux_value(boundary.flux, i, j)
+    # NumericalEarth reports positive atmosphere--ice flux as cooling out of
+    # the ice. The column's top boundary convention is positive into the ice.
+    return -pr141_boundary_flux_value(boundary.flux, i, j)
 end
 
 @inline function CSIT.column_boundary_energy_flux(boundary::CSIT.PrescribedEnergyFlux{F},
                                                   i, j, k, grid, fields, relation, Δt) where
                                                   {F <: Union{Oceananigans.Fields.AbstractField, AbstractArray}}
-    return pr141_boundary_flux_value(boundary.flux, i, j)
+    # NumericalEarth reports positive ocean--ice flux into the ice, whereas
+    # the column's lower-boundary convention is positive out of the column.
+    return -pr141_boundary_flux_value(boundary.flux, i, j)
 end
 
 @inline function CSIT.column_boundary_energy_flux(boundary::CSIT.MeltingLimitedSurfaceFlux{F},
@@ -159,7 +163,7 @@ end
     Δz = CSIT.current_column_cell_thickness(i, j, k, grid)
     E = @inbounds fields.internal_energy[i, j, k]
     S = @inbounds fields.bulk_salinity[i, j, k]
-    requested_flux = pr141_boundary_flux_value(boundary.flux, i, j)
+    requested_flux = -pr141_boundary_flux_value(boundary.flux, i, j)
     available_flux = CSIT.column_energy_to_complete_melt(relation, E, S, Δz) / Δt
     return min(requested_flux, max(available_flux, zero(available_flux)))
 end

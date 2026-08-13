@@ -1446,7 +1446,52 @@ end
     @test σ ≈ h
 end
 
-@testset "Column internal gradients do not create Stefan volume" begin
+@testset "Ice-free column gradients do not create Stefan volume" begin
+    grid = RectilinearGrid(size = (1, 1, 2),
+                           x = (0, 1),
+                           y = (0, 1),
+                           z = MutableVerticalDiscretization((0, 1)),
+                           topology = (Bounded, Bounded, Bounded))
+
+    relation = QuadraticLiquidusEnergyRelation(Float64)
+    thermodynamics = prescribed_salinity_enthalpy_thermodynamics(
+        grid;
+        relation,
+        salinity_profile = 0.0,
+        energy_transport = ConductiveTemperatureTransport(conductivity = 2.0),
+        boundary_conditions = ColumnBoundaryConditions(
+            top = MeltingLimitedSurfaceFlux(flux = 0.0),
+            bottom = PrescribedEnergyFlux(flux = 0.0)),
+    )
+    set!(thermodynamics;
+         bulk_salinity = 0.0,
+         temperature = (x, y, z) -> -1 - 8z)
+
+    model = SeaIceModel(grid;
+                        ice_thermodynamics = thermodynamics,
+                        phase_transitions = relation.phase_transitions,
+                        top_heat_flux = 0,
+                        bottom_heat_flux = 0,
+                        ice_consolidation_thickness = 0.05)
+    # The column state is allocated over open water too. Its initialization
+    # profile must not be mistaken for an ice--ocean interface that creates
+    # ice everywhere.
+    set!(model, h = 0.0, ℵ = 0.0)
+    ClimaSeaIce.SeaIceThermodynamics.initialize_column_vertical_metric!(model, thermodynamics)
+
+    ClimaSeaIce.SeaIceThermodynamics.thermodynamic_time_step!(model,
+                                                               thermodynamics,
+                                                               nothing,
+                                                               3600.0)
+
+    @test first(interior(thermodynamics.auxiliary.surface_stefan_residual_flux)) == 0
+    @test first(interior(thermodynamics.auxiliary.basal_stefan_residual_flux)) == 0
+    @test first(interior(model.ice_thickness)) == 0
+    @test first(interior(model.ice_concentration)) == 0
+    @test grid.z.σᶜᶜⁿ[1, 1, 1] ≈ 0.05
+end
+
+@testset "Column basal Stefan residual grows existing ice" begin
     grid = RectilinearGrid(size = (1, 1, 2),
                            x = (0, 1),
                            y = (0, 1),
@@ -1482,9 +1527,9 @@ end
                                                                3600.0)
 
     @test first(interior(thermodynamics.auxiliary.surface_stefan_residual_flux)) == 0
-    @test first(interior(model.ice_thickness)) ≈ 1.0
-    @test first(interior(model.ice_concentration)) ≈ 1.0
-    @test grid.z.σᶜᶜⁿ[1, 1, 1] ≈ 1.0
+    @test first(interior(thermodynamics.auxiliary.basal_stefan_residual_flux)) > 0
+    @test first(interior(model.ice_thickness)) > 1.0
+    @test first(interior(model.ice_concentration)) == 1.0
 end
 
 @testset "Conservative column remap" begin

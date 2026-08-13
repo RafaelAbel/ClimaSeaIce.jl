@@ -41,8 +41,15 @@ if [[ "$status" != "RUNNING" ]]; then
   CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute instances start "$VM_NAME" --zone="$ZONE"
 fi
 
-until CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone="$ZONE" \
-  --command='grep -q "Startup finished successfully." /var/log/climaseaice-startup.log'; do
+# A newly started VM can reject SSH briefly before its guest agent and startup
+# hydration are ready. Keep this retry explicit: the launcher must not treat a
+# transient connection refusal as a failed model launch.
+while true; do
+  if CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone="$ZONE" \
+       --command='grep -q "Startup finished successfully." /var/log/climaseaice-startup.log'; then
+    break
+  fi
+  echo "Waiting for ${VM_NAME} startup to finish..."
   sleep 30
 done
 

@@ -63,6 +63,7 @@ using Adapt
 using Oceananigans
 using Oceananigans.Fields: interior, set!
 using Oceananigans.Grids: MutableVerticalDiscretization
+using Oceananigans.Units: days, minutes
 using Oceananigans: fields, prognostic_fields, prognostic_state, restore_prognostic_state!
 using Statistics: median
 using Test
@@ -1611,6 +1612,65 @@ end
     @test first(interior(thermodynamics.auxiliary.basal_stefan_residual_flux)) ≈ 20.0
     @test first(interior(model.ice_thickness)) > 0
     @test first(interior(model.ice_concentration)) > 0
+end
+
+@testset "PR141 eight-layer edge formation is bounded and crosses the extent threshold" begin
+    function pr141_edge_model(bottom_flux)
+        grid = RectilinearGrid(size = (1, 1, 8),
+                               x = (0, 1),
+                               y = (0, 1),
+                               z = MutableVerticalDiscretization((0, 1)),
+                               topology = (Bounded, Bounded, Bounded))
+        relation = FixedSalinityBrinePocketEnergyRelation(Float64)
+        thermodynamics = prescribed_salinity_enthalpy_thermodynamics(
+            grid;
+            relation,
+            salinity_profile = 0.0,
+            energy_transport = ConductiveTemperatureTransport(
+                conductivity = MaykutUntersteinerConductivity(Float64)),
+            boundary_conditions = ColumnBoundaryConditions(
+                top = MeltingLimitedSurfaceFlux(flux = 0.0),
+                bottom = PrescribedEnergyFlux(flux = bottom_flux)),
+        )
+        # Match the ORCA PR141 constructor's allocated, non-equilibrated
+        # temperature profile. In open water this profile must never act as a
+        # physical conductive ice column.
+        set!(thermodynamics;
+             bulk_salinity = 0.0,
+             temperature = (x, y, z) -> -2 + (-10 + 2) * z)
+        model = SeaIceModel(grid;
+                            ice_thermodynamics = thermodynamics,
+                            phase_transitions = relation.phase_transitions,
+                            top_heat_flux = 0,
+                            bottom_heat_flux = 0,
+                            ice_consolidation_thickness = 0.05)
+        set!(model, h = 0.0, ℵ = 0.0)
+        ClimaSeaIce.SeaIceThermodynamics.initialize_column_vertical_metric!(model, thermodynamics)
+        return model, thermodynamics
+    end
+
+    dt = 20minutes
+    no_forcing_model, no_forcing_thermo = pr141_edge_model(0.0)
+    for _ in 1:Int(5days / dt)
+        ClimaSeaIce.SeaIceThermodynamics.thermodynamic_time_step!(no_forcing_model,
+                                                                   no_forcing_thermo,
+                                                                   nothing,
+                                                                   dt)
+    end
+    @test first(interior(no_forcing_model.ice_thickness)) == 0
+    @test first(interior(no_forcing_model.ice_concentration)) == 0
+
+    freezing_model, freezing_thermo = pr141_edge_model(20.0)
+    for _ in 1:Int(12days / dt)
+        ClimaSeaIce.SeaIceThermodynamics.thermodynamic_time_step!(freezing_model,
+                                                                   freezing_thermo,
+                                                                   nothing,
+                                                                   dt)
+    end
+    h = first(interior(freezing_model.ice_thickness))
+    ℵ = first(interior(freezing_model.ice_concentration))
+    @test 0.05 < h < 0.06
+    @test 0.15 < ℵ < 0.20
 end
 
 @testset "Conservative column remap" begin

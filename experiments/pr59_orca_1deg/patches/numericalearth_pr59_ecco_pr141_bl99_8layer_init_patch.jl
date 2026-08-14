@@ -41,6 +41,7 @@ Adapt.adapt_structure(to, T::PR141TopLayerTemperature) =
 # local to the outer coupling; the eight-layer BL99 energy transport remains
 # the Maykut-Untersteiner column solver configured below.
 const PR141_LEGACY_INTERFACE_CONDUCTIVITY = 2.03
+const PR141_NO_DYNAMICS_FRICTION_VELOCITY = 0.002
 const PR141_IC = NumericalEarth.EarthSystemModels.InterfaceComputations
 const PR141_ESM = NumericalEarth.EarthSystemModels
 
@@ -60,6 +61,16 @@ end
 
 @inline pr141_legacy_interface_flux(FT) =
     ClimaSeaIce.ConductiveFlux(FT; conductivity = convert(FT, PR141_LEGACY_INTERFACE_CONDUCTIVITY))
+
+# The normal corrected OMIP configuration derives u★ from ice--ocean momentum
+# stresses. Those stresses are intentionally absent while this PR141 milestone
+# has ice dynamics disabled, which otherwise makes u★ (and therefore the
+# three-equation basal flux) identically zero. The column solver already owns
+# its conductive basal balance, so only pass the turbulent three-equation
+# exchange here; do not reintroduce the legacy slab conductivity.
+@inline pr141_no_dynamics_ice_ocean_heat_flux(FT) =
+    PR141_IC.ThreeEquationHeatFlux(FT;
+        friction_velocity = convert(FT, PR141_NO_DYNAMICS_FRICTION_VELOCITY))
 
 function PR141_IC.default_ai_temperature(sea_ice::Simulation{<:ClimaSeaIce.SeaIceModel})
     thermodynamics = sea_ice.model.ice_thermodynamics
@@ -361,7 +372,7 @@ function OMIPSimulations.build_coupled_model(ocean, sea_ice, atmosphere, radiati
                 land,
                 atmosphere_ocean_fluxes = OMIPSimulations.corrected_atmosphere_ocean_fluxes(FT),
                 atmosphere_sea_ice_fluxes = OMIPSimulations.corrected_atmosphere_sea_ice_fluxes(FT),
-                sea_ice_ocean_heat_flux = OMIPSimulations.corrected_ice_ocean_heat_flux(),
+                sea_ice_ocean_heat_flux = pr141_no_dynamics_ice_ocean_heat_flux(FT),
                 atmosphere_ocean_velocity_difference = velocity,
                 atmosphere_sea_ice_velocity_difference = velocity,
                 ocean_minimum_salinity = convert(FT, ocean_minimum_salinity),
@@ -373,7 +384,7 @@ function OMIPSimulations.build_coupled_model(ocean, sea_ice, atmosphere, radiati
                 land,
                 atmosphere_ocean_fluxes = OMIPSimulations.ncar_atmosphere_ocean_fluxes(FT),
                 atmosphere_sea_ice_fluxes = OMIPSimulations.ncar_atmosphere_sea_ice_fluxes(FT),
-                sea_ice_ocean_heat_flux = OMIPSimulations.corrected_ice_ocean_heat_flux(),
+                sea_ice_ocean_heat_flux = pr141_no_dynamics_ice_ocean_heat_flux(FT),
                 atmosphere_ocean_velocity_difference = velocity,
                 atmosphere_sea_ice_velocity_difference = velocity,
                 ocean_minimum_salinity = convert(FT, ocean_minimum_salinity),

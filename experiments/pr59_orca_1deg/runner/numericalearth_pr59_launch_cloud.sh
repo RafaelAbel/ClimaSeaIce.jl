@@ -35,6 +35,7 @@ Environment:
   STOP_ITERATION=1
   DIAGNOSTICS=true|false
   PROFILE=true|false
+  OMIP_FILE_SPLITTING_INTERVAL=5days
 USAGE
 }
 
@@ -118,6 +119,7 @@ CLOUD_ARCH="${CLOUD_ARCH:-gpu}"
 START_DATE="${OMIP_START_DATE:-2006-01-01T00:00:00}"
 END_DATE="${OMIP_END_DATE:-2006-12-31T00:00:00}"
 DIAGNOSTICS="${DIAGNOSTICS:-true}"
+FILE_SPLITTING_INTERVAL="${OMIP_FILE_SPLITTING_INTERVAL:-360days}"
 PROFILE="${PROFILE:-false}"
 BACKEND_SIZE="${BACKEND_SIZE:-}"
 ARTIFICIAL_REICING="${OMIP_ARTIFICIAL_REICING:-false}"
@@ -310,7 +312,7 @@ function cloud_main()
         checkpoint_interval = 360days,
         output_dir = \"${OUTPUT_DIR}/${RUN_NAME}_run\",
         filename_prefix = \"${RUN_NAME}\",
-        file_splitting_interval = 360days,
+        file_splitting_interval = ${FILE_SPLITTING_INTERVAL},
     )
     sim = Base.invokelatest(omip_simulation, :${CONFIG}; sim_kwargs...)
     cloud_stage(\"Stage: omip_simulation returned\")

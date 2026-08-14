@@ -383,5 +383,11 @@ function OMIPSimulations.build_coupled_model(ocean, sea_ice, atmosphere, radiati
         end
     end
 
-    return ESM.OceanSeaIceModel(ocean, sea_ice; atmosphere, radiation, land, interfaces)
+    # `OceanSeaIceModel` follows the EarthSystemModel top-to-bottom component
+    # ordering: sea ice precedes ocean. Reversing these arguments creates an
+    # object that can be stepped, but disconnects the sea-ice interface flux
+    # update. In particular, the diagnosed frazil and ice-ocean heat fluxes
+    # remain identically zero and the PR141 column never receives the JRA55 /
+    # ocean forcing required for edge formation.
+    return ESM.OceanSeaIceModel(sea_ice, ocean; atmosphere, radiation, land, interfaces)
 end

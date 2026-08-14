@@ -41,15 +41,16 @@ if [[ "$status" != "RUNNING" ]]; then
   CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute instances start "$VM_NAME" --zone="$ZONE"
 fi
 
-# A newly started VM can reject SSH briefly before its guest agent and startup
-# hydration are ready. Keep this retry explicit: the launcher must not treat a
-# transient connection refusal as a failed model launch.
+# A newly started VM can reject SSH briefly before its guest agent is ready.
+# The model runner only needs its installed Julia and Cloud SDK; relying on a
+# broad startup-script sentinel also blocks a valid pre-hydrated VM if an
+# unrelated optional provisioning step fails.
 while true; do
   if CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone="$ZONE" \
-       --command='grep -q "Startup finished successfully." /var/log/climaseaice-startup.log'; then
+       --command='test -x /opt/Sea_ice/tools/julia-1.12.1/bin/julia && command -v gcloud >/dev/null'; then
     break
   fi
-  echo "Waiting for ${VM_NAME} startup to finish..."
+  echo "Waiting for ${VM_NAME} runner prerequisites..."
   sleep 30
 done
 

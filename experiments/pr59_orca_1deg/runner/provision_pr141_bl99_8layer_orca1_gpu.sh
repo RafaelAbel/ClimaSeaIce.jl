@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Launch the isolated PR141 BL99 ORCA1 smoke test. The adapter itself fixes
 # dynamics off and the ice grid at eight layers; this launcher deliberately
-# exposes no switches for either behaviour.
+# exposes no switches for either behaviour. Set `OMIP_ARCH=cpu` with a CPU VM
+# for construction/physics checks before using a GPU milestone.
 
 PROJECT_ID="${PROJECT_ID:-rafael-sandbox-488511}"
 ZONE="${ZONE:-us-central1-b}"
@@ -11,6 +12,8 @@ VM_NAME="${VM_NAME:-hens-dev-a100-arctic-pr141-smoke}"
 CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-/private/tmp/sea-ice-gcloud-current.Of91dI}"
 RUN_LABEL="${RUN_LABEL:-pr141_bl99_8layer_orca1_5day_20260811}"
 STOP_TIME="${STOP_TIME:-5days}"
+OMIP_ARCH="${OMIP_ARCH:-gpu}"
+OMIP_BACKEND_SIZE="${OMIP_BACKEND_SIZE:-4}"
 # Keep failed five-day debugging runs available by default. Longer milestone
 # launches can explicitly restore the normal failure shutdown behaviour.
 SHUTDOWN_ON_FAILURE="${SHUTDOWN_ON_FAILURE:-false}"
@@ -32,7 +35,13 @@ JUNE8_PR59_DIR="NumericalEarth.jl-${JUNE8_PR59_COMMIT}"
 LOCAL_PR59_TARBALL="/private/tmp/numericalearth_pr59_june8_${JUNE8_PR59_COMMIT:0:8}.tar.gz"
 REMOTE_PR59_TARBALL="/home/rafaelabel/numericalearth_pr59_june8_${JUNE8_PR59_COMMIT:0:8}.tar.gz"
 REMOTE_PR59_SOURCE="/opt/Sea_ice/experiments/numericalearth_pr59/${JUNE8_PR59_DIR}"
-REMOTE_LOG="/home/rafaelabel/numericalearth_pr59_a100_ecco_${RUN_LABEL}_launcher_$(date -u +%Y%m%dT%H%M%SZ).log"
+JUNE8_OCEANANIGANS_COMMIT="76862dbcb5e2e476d297b8184c351845c4e7577b"
+JUNE8_OCEANANIGANS_URL="https://codeload.github.com/CliMA/Oceananigans.jl/tar.gz/${JUNE8_OCEANANIGANS_COMMIT}"
+JUNE8_OCEANANIGANS_DIR="Oceananigans.jl-${JUNE8_OCEANANIGANS_COMMIT}"
+LOCAL_OCEANANIGANS_TARBALL="/private/tmp/oceananigans_june8_${JUNE8_OCEANANIGANS_COMMIT:0:8}.tar.gz"
+REMOTE_OCEANANIGANS_TARBALL="/home/rafaelabel/oceananigans_june8_${JUNE8_OCEANANIGANS_COMMIT:0:8}.tar.gz"
+REMOTE_OCEANANIGANS_SOURCE="/opt/Sea_ice/experiments/numericalearth_pr59/${JUNE8_OCEANANIGANS_DIR}"
+REMOTE_LOG="/home/rafaelabel/numericalearth_pr59_${OMIP_ARCH}_ecco_${RUN_LABEL}_launcher_$(date -u +%Y%m%dT%H%M%SZ).log"
 
 GCLOUD=(gcloud --project="$PROJECT_ID")
 
@@ -64,6 +73,10 @@ git -C "$REPO_ROOT" archive --prefix="ClimaSeaIce.jl-${SOURCE_SHORT}/" \
 # NumericalEarth source tree and cannot move underneath a retry.
 curl -L --fail --silent --show-error "$JUNE8_PR59_URL" -o "$LOCAL_PR59_TARBALL"
 
+# The June 8 baseline used this precise 0.108.1 source revision. The generic
+# 0.108.0 resolver lacks its adaptive vertical-advection implementation.
+curl -L --fail --silent --show-error "$JUNE8_OCEANANIGANS_URL" -o "$LOCAL_OCEANANIGANS_TARBALL"
+
 CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
   "$LOCAL_PATCH" "$LOCAL_CLOUD_LAUNCHER" "$LOCAL_REMOTE_RUNNER" \
   "$VM_NAME:/home/rafaelabel/" --zone="$ZONE"
@@ -71,17 +84,19 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
   "$LOCAL_TARBALL" "$VM_NAME:$REMOTE_TARBALL" --zone="$ZONE"
 CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
   "$LOCAL_PR59_TARBALL" "$VM_NAME:$REMOTE_PR59_TARBALL" --zone="$ZONE"
+CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute scp \
+  "$LOCAL_OCEANANIGANS_TARBALL" "$VM_NAME:$REMOTE_OCEANANIGANS_TARBALL" --zone="$ZONE"
 
 CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone="$ZONE" --command="
   chmod +x /home/rafaelabel/run_numericalearth_pr59_omip_on_vm.sh &&
   nohup env \
-    OMIP_ARCH='gpu' \
+    OMIP_ARCH='${OMIP_ARCH}' \
     OMIP_CONFIG='orca' \
     OMIP_STOP_TIME='${STOP_TIME}' \
     OMIP_DT='20minutes' \
     OMIP_DIAGNOSTICS='true' \
     OMIP_FILE_SPLITTING_INTERVAL='5days' \
-    OMIP_BACKEND_SIZE='4' \
+    OMIP_BACKEND_SIZE='${OMIP_BACKEND_SIZE}' \
     OMIP_START_DATE='2006-01-01T00:00:00' \
     OMIP_END_DATE='2006-12-31T00:00:00' \
     OMIP_INIT_SOURCE='ecco' \
@@ -90,11 +105,11 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone=
     OMIP_ECCO_BUCKET_PREFIX='inputs/tripolar_ecco4/2006/ecco4' \
     OMIP_JRA55_BUCKET_PREFIX='inputs/tripolar_glorys_jra55/2006/jra55' \
     OMIP_UPLOAD_OUTPUTS='true' \
-    OMIP_OUTPUT_BUCKET_PREFIX='outputs/numericalearth_pr59/a100_ecco_${RUN_LABEL}' \
+    OMIP_OUTPUT_BUCKET_PREFIX='outputs/numericalearth_pr59/${OMIP_ARCH}_ecco_${RUN_LABEL}' \
     OMIP_SHUTDOWN_ON_EXIT='true' \
     OMIP_SHUTDOWN_ON_FAILURE='${SHUTDOWN_ON_FAILURE}' \
     OMIP_LAUNCHER_LOG='${REMOTE_LOG}' \
-    OMIP_OUTPUT_DIR='/home/rafaelabel/numericalearth_pr59_a100_ecco_${RUN_LABEL}' \
+    OMIP_OUTPUT_DIR='/home/rafaelabel/numericalearth_pr59_${OMIP_ARCH}_ecco_${RUN_LABEL}' \
     OMIP_SEA_ICE_THERMODYNAMICS='pr141_bl99' \
     OMIP_CLEAN_PR59_BASELINE='true' \
     OMIP_WITH_SNOW='false' \
@@ -105,6 +120,8 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone=
     TARBALL_PATH='${REMOTE_PR59_TARBALL}' \
     SRC_ROOT='${REMOTE_PR59_SOURCE}' \
     PROJECT_DIR='${REMOTE_PR59_SOURCE}/experiments/OMIPSimulations' \
+    OCEANANIGANS_TARBALL='${REMOTE_OCEANANIGANS_TARBALL}' \
+    OCEANANIGANS_SRC='${REMOTE_OCEANANIGANS_SOURCE}' \
     REFRESH_PR_SOURCE='true' \
     BIHARMONIC='50days' \
     CORRECTED='true' \
@@ -117,7 +134,7 @@ CLOUDSDK_CONFIG="$CLOUDSDK_CONFIG" "${GCLOUD[@]}" compute ssh "$VM_NAME" --zone=
     >'${REMOTE_LOG}' 2>&1 &
 "
 
-echo "Launched PR141 BL99 eight-layer ORCA1 ${STOP_TIME} GPU smoke test."
+echo "Launched PR141 BL99 eight-layer ORCA1 ${STOP_TIME} ${OMIP_ARCH} smoke test."
 echo "VM: ${VM_NAME} (${ZONE})"
 echo "Source: ${SOURCE_REV}"
 echo "Log: ${REMOTE_LOG}"

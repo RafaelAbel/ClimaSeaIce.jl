@@ -242,16 +242,7 @@ function build_ocean(config, grid;
                      biharmonic_timescale,
                      biharmonic_viscosity = nothing,
                      vertical_closure = :catke,
-                     implicit_vertical_advection = true,
-                     skew_flux_formulation = :diffusive,
-                     nemo_eddy_coefficients = nothing,
-                     cesm_eddy_coefficients = nothing,
-                     hybrid_eddy_coefficients = nothing,
-                     eddy_slope_limiter = nothing,
-                     restoring_under_sea_ice = true,
                      Cᵂu★ = nothing,
-                     normalize_salinity = true,
-                     additional_tracer_closure = nothing,
                      start_date, end_date)
 
     ecco_dir = get(ENV, "OMIP_ECCO_DIR", restoring_dir)
@@ -266,15 +257,18 @@ function build_ocean(config, grid;
         biharmonic_viscosity,
         Cᵂu★,
     )
-    closure = isnothing(additional_tracer_closure) ? closure : (closure..., additional_tracer_closure)
 
     coriolis = HydrostaticSphericalCoriolis(scheme = Oceananigans.Coriolis.EnstrophyConserving())
-    # The frozen June baseline predates the adaptive vertical-discretization
-    # API. Retain its fixed vertically implicit scheme for the coupled ORCA
-    # integration; this leaves the requested PR141 sea-ice physics unchanged.
-    time_discretization = implicit_vertical_advection ?
-        VerticallyImplicitTimeDiscretization() : ExplicitTimeDiscretization()
-    momentum_advection = WENOVectorInvariant(order = 5)
+    # Keep the ocean component aligned with the verified June ECCO/JRA55
+    # baseline. PR141 changes the sea-ice column only; changing the ocean's
+    # vertical/advection numerics also changes the near-freezing frazil source
+    # that supplies new ice at the edge. The runner pins the exact June
+    # Oceananigans 0.108.1 source, which supplies this adaptive scheme.
+    adaptive_vertical = Oceananigans.TimeSteppers.AdaptiveVerticallyImplicitDiscretization
+    momentum_advection = WENOVectorInvariant(
+        order = 5,
+        time_discretization = adaptive_vertical(cfl = 0.4),
+    )
 
     ocean = NumericalEarth.ocean_simulation(
         grid;
@@ -283,11 +277,12 @@ function build_ocean(config, grid;
         tracer_advection = WENO(
             order = 7;
             minimum_buffer_upwind_order = 3,
+            time_discretization = adaptive_vertical(cfl = 0.4),
         ),
         coriolis,
         timestepper = :SplitRungeKutta3,
-        materialize_buoyancy_gradients = true,
-        free_surface = SplitExplicitFreeSurface(grid; substeps = 100),
+        materialize_buoyancy_gradients = !(config == Val(:tenthdegree)),
+        free_surface = SplitExplicitFreeSurface(grid; substeps = 70),
         closure,
     )
 

@@ -53,14 +53,16 @@ CLIMASEAICE_VARIANT="${CLIMASEAICE_VARIANT:-$DEFAULT_CLIMASEAICE_VARIANT}"
 CLIMASEAICE_URL="${CLIMASEAICE_URL:-$DEFAULT_CLIMASEAICE_URL}"
 CLIMASEAICE_TARBALL="${CLIMASEAICE_TARBALL:-$WORK_ROOT/climaseaice_${CLIMASEAICE_VARIANT}.tar.gz}"
 CLIMASEAICE_SRC="${CLIMASEAICE_SRC:-$WORK_ROOT/ClimaSeaIce.jl-${CLIMASEAICE_VARIANT}}"
+OCEANANIGANS_TARBALL="${OCEANANIGANS_TARBALL:-}"
+OCEANANIGANS_SRC="${OCEANANIGANS_SRC:-}"
 CLIMAOCEAN_PROJECT="${CLIMAOCEAN_PROJECT:-/opt/Sea_ice/clima/ClimaOcean.jl-main}"
 INSTANTIATE_STAMP="${INSTANTIATE_STAMP:-$WORK_ROOT/.omip_project_instantiated_${CLIMASEAICE_VARIANT}_v1}"
 RUNNER_LOCK_PATH="${RUNNER_LOCK_PATH:-$WORK_ROOT/.omip_runner.lock}"
 REFRESH_PR_SOURCE="${REFRESH_PR_SOURCE:-false}"
 # PR141's eight-layer implementation was developed against the June 8 PR59
-# source snapshot and Oceananigans 0.108. Keep that source/dependency family
-# intact: the current upstream PR59 head resolves a newer, incompatible
-# NumericalEarth package for the JRA55 forcing interface.
+# source snapshot and its Oceananigans 0.108.1 revision. Keep that exact
+# source/dependency family intact: the generic 0.108.0 release lacks the
+# baseline's adaptive vertical-advection support.
 OMIP_CLEAN_PR59_BASELINE="${OMIP_CLEAN_PR59_BASELINE:-false}"
 
 mkdir -p "$WORK_ROOT"
@@ -278,15 +280,46 @@ wire_clean_pr141_source() {
     exit 1
   }
 
-  # The snapshot's OMIP project pins Oceananigans 0.108, while its parent
-  # package still advertises 0.109. Its old branch sources have since moved
-  # to incompatible releases. These four constraints reproduce the coherent
-  # June-era family: NumericalEarth 0.5.4 / Oceananigans 0.108 / Seawater
-  # Polynomials 0.3 / PR141 ClimaSeaIce 0.5.7.
+  [[ -n "$OCEANANIGANS_TARBALL" && -n "$OCEANANIGANS_SRC" ]] || {
+    echo "The clean PR141 baseline requires its pinned Oceananigans source." >&2
+    exit 1
+  }
+  [[ -f "$OCEANANIGANS_TARBALL" ]] || {
+    echo "Missing pinned Oceananigans archive: $OCEANANIGANS_TARBALL" >&2
+    exit 1
+  }
+
+  # The known-good June 8 run used Oceananigans 0.108.1 at a local path.
+  # Validate the capability rather than trusting a cache that may have been
+  # populated by a prior generic 0.108.0 attempt.
+  if [[ ! -f "$OCEANANIGANS_SRC/Project.toml" ]] || \
+     ! grep -q '^version = "0.108.1"$' "$OCEANANIGANS_SRC/Project.toml" || \
+     ! grep -q 'AdaptiveVerticallyImplicitDiscretization' "$OCEANANIGANS_SRC/src/TimeSteppers/time_discretization.jl"; then
+    local unpack_dir extracted_dir
+    unpack_dir="$(mktemp -d "$WORK_ROOT/oceananigans_unpack.XXXXXX")"
+    tar -xzf "$OCEANANIGANS_TARBALL" -C "$unpack_dir"
+    extracted_dir="$(find "$unpack_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    [[ -n "$extracted_dir" ]] || {
+      echo "Failed to find extracted Oceananigans source in $OCEANANIGANS_TARBALL" >&2
+      rm -rf "$unpack_dir"
+      exit 1
+    }
+    rm -rf "$OCEANANIGANS_SRC"
+    mv "$extracted_dir" "$OCEANANIGANS_SRC"
+    rm -rf "$unpack_dir"
+  fi
+
+  # The snapshot's OMIP project accepts the verified 0.108.1 source revision;
+  # retain that compatibility family with the pinned local dependency.
   sed -i 's/^Oceananigans = "0.109"$/Oceananigans = "0.108"/' "$SRC_ROOT/Project.toml"
   sed -i 's/^version = "0.5.1"$/version = "0.5.7"/' "$CLIMASEAICE_SRC/Project.toml"
   sed -i 's/^SeawaterPolynomials = "0.4"$/SeawaterPolynomials = "0.3, 0.4"/' \
     "$PROJECT_DIR/Project.toml"
+  # `=0.108` means exactly 0.108.0 in Julia's compatibility syntax. The
+  # verified June source is 0.108.1, so allow the 0.108 patch series while
+  # retaining the frozen dependency family.
+  sed -i 's/^Oceananigans = "0.106, 0.107, =0.108, 0.109.1"$/Oceananigans = "0.106, 0.107, 0.108, 0.109.1"/' \
+    "$CLIMASEAICE_SRC/Project.toml"
 
   # PR141 contains a duplicate `fields(::Nothing)` method in an internal
   # thermodynamics file. Keep the SeaIceModel fallback (needed for
@@ -298,6 +331,7 @@ wire_clean_pr141_source() {
 
   for project in "$SRC_ROOT/Project.toml" "$PROJECT_DIR/Project.toml"; do
     sed -i '/^ClimaSeaIce = {path = ".*"}$/d' "$project"
+    sed -i '/^Oceananigans = {path = ".*"}$/d' "$project"
     sed -i '/^Oceananigans = {rev = "ss\/for-omip", url = "https:\/\/github.com\/CliMA\/Oceananigans.jl.git"}$/d' "$project"
     sed -i '/^SeawaterPolynomials = {rev = "ss\/conversion-functions", url = "https:\/\/github.com\/CliMA\/SeawaterPolynomials.jl.git"}$/d' "$project"
     sed -i 's|^ClimaSeaIce = {rev = "ss/correct-bugs", url = "https://github.com/CliMA/ClimaSeaIce.jl.git"}|ClimaSeaIce = {path = "'"$CLIMASEAICE_SRC"'"}|' "$project"
@@ -305,6 +339,11 @@ wire_clean_pr141_source() {
     if ! grep -q '^ClimaSeaIce = {path = "' "$project"; then
       sed -i "/^\[sources\]/a\\
 ClimaSeaIce = {path = \"$CLIMASEAICE_SRC\"}
+" "$project"
+    fi
+    if ! grep -q '^Oceananigans = {path = "' "$project"; then
+      sed -i "/^\[sources\]/a\\
+Oceananigans = {path = \"$OCEANANIGANS_SRC\"}
 " "$project"
     fi
   done
@@ -532,7 +571,7 @@ else
   fi
 fi
 
-if [[ ! -f "$INSTANTIATE_STAMP" ]]; then
+if [[ ! -f "$INSTANTIATE_STAMP" || ! -f "$PROJECT_DIR/Manifest.toml" ]]; then
   "$JULIA" --project="$PROJECT_DIR" -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
   [[ -f "$PROJECT_DIR/Manifest.toml" ]] || {
     echo "Pkg.instantiate() did not produce $PROJECT_DIR/Manifest.toml." >&2

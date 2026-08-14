@@ -135,6 +135,28 @@ GPU VM shut down automatically. The five-day SIE is still weaker than the
 old-thermodynamics reference (**15.411 million km²** at day 5), so the
 30-day gate must establish that the response persists rather than plateaus.
 
+### Fixed-u★ five-day gate
+
+The no-dynamics interface path was revalidated on 2026-08-14 after replacing
+the stress-derived ice--ocean friction velocity with fixed **u★ = 0.002 m s⁻¹**.
+With ice dynamics hard-coded off, the former stress-derived velocity was zero,
+which disabled the three-equation interface heat exchange.
+
+- source commit: `1f51aa5`
+- model time: **5 days**, iteration **360** (20-minute timestep)
+- output prefix:
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_fixedustar_5day_a100_uc1f_20260814/`
+- readable split surface output contains `siconc`; Arctic 15%-threshold SIE:
+  **15.075 → 15.141 million km²**
+- `JTio` is nonzero in 4,553 cells initially and 3,951 cells at day 5
+  (maximum **2.51×10⁻⁵ W m⁻²** initially and **2.47×10⁻⁵ W m⁻²** at day 5)
+- maximum thickness remains bounded: **4.545 → 4.542 m**
+
+The run exited with code 0, uploaded its artifacts, and automatically shut
+down the A100 VM. This is the valid five-day gate for the 30-day validation;
+the SIE response is non-runaway and growing, though still weaker than the
+old-thermodynamics day-5 reference.
+
 ### Confirmed coupled 30-day gate
 
 The corrected PR141 eight-layer, no-dynamics configuration completed its

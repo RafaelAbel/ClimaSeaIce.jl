@@ -4,13 +4,15 @@ using Oceananigans.Units
 using Oceananigans.Fields: interior
 using Oceananigans.Grids: Center, φnode
 using Oceananigans.Operators: Azᶜᶜᵃ
-using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
+using Oceananigans.OutputReaders: FieldTimeSeries, OnDisk
 
 """Load each output part and return time-sorted, de-duplicated entries."""
 function collect_entries(paths)
     entries = NamedTuple[]
     for path in paths
-        fts = FieldTimeSeries(path, "siconc"; backend = InMemory(2))
+        # A file split exactly at the output interval can contain a single
+        # snapshot. OnDisk supports that whereas InMemory requires ≥2 slots.
+        fts = FieldTimeSeries(path, "siconc"; backend = OnDisk())
         for index in eachindex(fts.times)
             push!(entries, (; time = Float64(fts.times[index] / days), series = fts, index))
         end

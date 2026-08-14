@@ -56,10 +56,9 @@ to `nothing` in the constructor; the launch environment cannot enable them.
 
 The path packages the last PR59 source commit before the June 8 baseline run
 (`bf1f9fcf`) rather than a moving upstream PR reference. It preserves the
-baseline NumericalEarth and
-JRA55 forcing interfaces and resolves the coherent historical package family:
-NumericalEarth 0.5.4, Oceananigans 0.108.2, SeawaterPolynomials 0.3.10, and
-the packaged PR141 source reported as 0.5.7. The only source-local fixes are
+baseline NumericalEarth and JRA55 forcing interfaces and pins the exact
+June-8 Oceananigans source (`76862db`, version 0.108.1), rather than resolving
+a moving compatible release. The only source-local fixes are
 the two Julia-1.12 PR141 compatibility adjustments. After committing the
 branch, launch the five-day GPU smoke test with:
 
@@ -156,6 +155,28 @@ The run exited with code 0, uploaded its artifacts, and automatically shut
 down the A100 VM. This is the valid five-day gate for the 30-day validation;
 the SIE response is non-runaway and growing, though still weaker than the
 old-thermodynamics day-5 reference.
+
+### June-8 Oceananigans reproduction five-day gate
+
+The same no-dynamics PR141 path was rerun on 2026-08-14 with the exact
+Oceananigans source used by the June-8 baseline, rather than a compatible
+resolver-selected version:
+
+- source commit: `ec46150`
+- Oceananigans source: `76862dbcb5e2e476d297b8184c351845c4e7577b` (0.108.1)
+- model time: **5 days**, iteration **360** (20-minute timestep)
+- output prefix:
+  `gs://sea_ice/outputs/numericalearth_pr59/gpu_ecco_pr141_bl99_8layer_orca1_june8ocean_5day_a100_20260814/`
+- Arctic 15%-threshold SIE: **15.075197 → 15.141405 million km²**
+- `sithick` changed in **12,510** cells (maximum absolute change **0.295 m**)
+  and `siconc` in **12,896** cells (maximum absolute change **0.433**)
+- maximum thickness remained bounded: **4.545 → 4.542 m**
+
+The launcher reached exit code 0, uploaded split surface outputs containing
+`siconc` plus fields, averages, and the checkpoint, and automatically shut
+down the VM. The positive but weak edge growth is physically non-runaway and
+reproduces the fixed-u★ response; it remains below the old-thermodynamics
+five-day SIE increase (**15.411 million km²**).
 
 ### Confirmed coupled 30-day gate
 

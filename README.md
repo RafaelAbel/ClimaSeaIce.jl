@@ -31,6 +31,23 @@ We support stand-alone simulations of sea ice dynamics as well as simulations co
 Our documentation and source code are works in progress.
 When things have progressed, we'll put an outline here.
 
+### PR141 BL99 local column sandbox
+
+Before using an ORCA grid or GPU, the eight-layer PR141 phase-boundary and
+concentration logic can be exercised on one CPU cell with controlled fluxes:
+
+```bash
+julia --project=. experiments/pr141_bl99_column_sandbox.jl open_water_gradient
+julia --project=. experiments/pr141_bl99_column_sandbox.jl edge_freezing
+julia --project=. experiments/pr141_bl99_column_sandbox.jl consolidated_ice
+```
+
+The first case proves that the allocated initial temperature gradient cannot
+create ice in open water. The second proves that a physical ocean freezing
+flux can create thin partial ice without the runaway; the third covers an
+already consolidated ice column. Use `PR141_SANDBOX_DAYS` and
+`PR141_SANDBOX_BOTTOM_FLUX` to change the duration or forcing.
+
 ### Citing
 
 If you use ClimaSeaIce for your research, teaching, or fun 🤩, everyone in our community will be grateful

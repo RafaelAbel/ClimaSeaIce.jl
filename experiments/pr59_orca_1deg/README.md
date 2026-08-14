@@ -113,6 +113,28 @@ The process exited successfully, uploaded all output artifacts, and the GPU VM
 automatically shut down. The next milestone is a 30-day run from this exact
 commit; a 365-day run must use the validated 30-day configuration.
 
+### Ocean-boundary-flux five-day gate
+
+The revised PR141 basal Stefan treatment completed its five-day GPU gate on
+2026-08-14. It keeps the initialized-column conduction guard while preserving
+the prescribed ocean-boundary flux for thin ice.
+
+- source commit: `2bc8905` (including the ocean-flux correction `ca08124`)
+- model time: **5 days**, iteration **360** (20-minute timestep)
+- output prefix:
+  `gs://sea_ice/outputs/numericalearth_pr59/a100_ecco_pr141_bl99_8layer_orca1_oceanflux_5day_l4_20260814/`
+- Arctic 15%-threshold SIE: **15.075 → 15.158 million km²**, with
+  **0.083 million km²** of new threshold area and no threshold loss
+- ice volume proxy: **15.825 → 15.940 million km³**; 5,565 Northern
+  Hemisphere cells changed in either concentration or thickness
+- maximum thickness: **4.545 → 4.542 m**, ruling out the previous
+  open-water runaway
+
+All artifacts, including `surface.jld2` with `siconc`, were uploaded and the
+GPU VM shut down automatically. The five-day SIE is still weaker than the
+old-thermodynamics reference (**15.411 million km²** at day 5), so the
+30-day gate must establish that the response persists rather than plateaus.
+
 ### Confirmed coupled 30-day gate
 
 The corrected PR141 eight-layer, no-dynamics configuration completed its

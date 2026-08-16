@@ -203,6 +203,10 @@ year.
 The same PR141 BL99 eight-layer, no-dynamics configuration completed a full
 year on an A100 on 2026-08-13:
 
+- thermodynamics: **new PR141 BL99 eight-layer column thermodynamics**
+- ice dynamics: **disabled**
+- snow thermodynamics: **disabled**
+
 - source commit: `ab929a3`
 - model time: **365 days**
 - final iteration: **26,280** (20-minute timestep)

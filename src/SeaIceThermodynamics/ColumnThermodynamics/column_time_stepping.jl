@@ -92,15 +92,58 @@ end
 @inline apply_column_thermodynamics_this_stage(timestepper::SplitRungeKuttaTimeStepper, clock) =
     clock.stage == timestepper.Nstages
 
+@kernel function _reset_unconsolidated_column_energy!(fields, grid, relation,
+                                                        bottom_boundary,
+                                                        consolidation_thickness)
+    i, j, k = @index(Global, NTuple)
+
+    if !column_consolidated(consolidation_thickness, grid, i, j)
+        @inbounds begin
+            # An unconsolidated column has no resolved temperature profile: it
+            # evolves through the slab latent-heat balance in the volume
+            # update. Keep PR165's allocated, but dormant, layer enthalpies at
+            # the basal reference state so stale resolved-column energy cannot
+            # reappear when the ice later consolidates.
+            Tᵇ = column_bottom_reference_temperature(bottom_boundary, i, j,
+                                                         grid, fields, relation)
+            S = fields.bulk_salinity[i, j, k]
+            fields.internal_energy[i, j, k] = internal_energy(relation, Tᵇ, S)
+        end
+    end
+end
+
+function reset_unconsolidated_column_energy!(thermodynamics::ColumnEnergyThermodynamics,
+                                               consolidation_thickness)
+    grid = thermodynamics.fields.internal_energy.grid
+    launch!(architecture(grid), grid, :xyz,
+            _reset_unconsolidated_column_energy!,
+            thermodynamics.fields, grid, thermodynamics.relation,
+            thermodynamics.heat_boundary_conditions.bottom,
+            consolidation_thickness)
+    compute_column_thermodynamic_diagnostics!(thermodynamics)
+    return nothing
+end
+
 function thermodynamic_time_step!(model, th::ColumnEnergyThermodynamics, ::Nothing, Δt)
 
     apply_column_thermodynamics_this_stage(model.timestepper, model.clock) || return nothing
+
+    # Reset first so temperature-dependent bottom fluxes are cached against
+    # the basal state for an unconsolidated column rather than stale energy.
+    reset_unconsolidated_column_energy!(th, model.ice_consolidation_thickness)
 
     # Evaluate stateful external fluxes once per step, then drive both the energy solve and the volume update from
     # the cached values so their side effects (e.g. an evolving lake) fire exactly once — as in SlabThermodynamics.
     Qe = cached_external_heat_fluxes(th, model.external_heat_fluxes, model.clock, fields(model))
     column_energy_time_step!(th, Qe, model.clock, fields(model), model.ice_consolidation_thickness, Δt)
     column_stefan_volume_update!(th, model, Qe, Δt)
+
+    # The volume update can melt a resolved column across the consolidation
+    # threshold in this step. It was still consolidated during the reset
+    # above, so reset it again after h and the moving metric have changed.
+    # Otherwise its resolved-column enthalpy survives in a regime that has no
+    # independent temperature and can diagnose an extreme temperature before
+    # the next thermodynamic step.
+    reset_unconsolidated_column_energy!(th, model.ice_consolidation_thickness)
     return nothing
 end
-

@@ -1334,6 +1334,55 @@ end
     @test abs(ΔV) < abs(buggy_ΔV) / 2                  # not the post-solve double-count (≈ full requested flux)
 end
 
+# A reduced regression for the ORCA1 failure in which a resolved column melted
+# from just above the 5 cm consolidation threshold to h=0.04967326467495441 m.
+# No ORCA grid, atmosphere/ocean component, snow, or ice dynamics is needed to
+# expose the ordering bug: the energy solve sees consolidated ice, then the
+# volume update makes it unconsolidated in the same step. Its now-dormant layer
+# enthalpies must be reset immediately rather than surviving until the next
+# thermodynamic step and diagnosing an unphysical temperature.
+@testset "Column energy resets after crossing the consolidation threshold" begin
+    observed_failure_thickness = 0.04967326467495441
+    initial_thickness = 0.0501
+    consolidation_thickness = 0.05
+    bottom_temperature = -1.8
+    Δt = 90.0
+
+    grid = RectilinearGrid(size = 8,
+                           z = SeaIceColumnDiscretization((0, 1)),
+                           topology = (Flat, Flat, Bounded))
+    relation = FixedSalinityBrinePocketEnergyRelation(Float64)
+    thermodynamics = prescribed_salinity_enthalpy_thermodynamics(grid;
+        relation,
+        salinity_profile = 4.0,
+        energy_transport = ConductiveTemperatureTransport(conductivity = 2.0),
+        heat_boundary_conditions = (top = MeltingConstrainedFluxBalance(),
+                                    bottom = PrescribedTemperature(bottom_temperature)))
+    model = SeaIceModel(grid;
+        ice_thermodynamics = thermodynamics,
+        phase_transitions = relation.phase_transitions,
+        ice_consolidation_thickness = consolidation_thickness,
+        top_heat_flux = -100.0,
+        bottom_heat_flux = 0.0)
+
+    set!(model, h = initial_thickness, ℵ = 0.5)
+    set!(thermodynamics; bulk_salinity = 4.0, temperature = -0.25)
+    time_step!(model, Δt)
+
+    final_thickness = first(interior(model.ice_thickness))
+    final_temperature = Array(interior(thermodynamics.fields.temperature))
+    final_energy = Array(interior(thermodynamics.fields.internal_energy))
+    final_salinity = Array(interior(thermodynamics.fields.bulk_salinity))
+    expected_energy = internal_energy.(Ref(relation), bottom_temperature, final_salinity)
+
+    @test initial_thickness ≥ consolidation_thickness
+    @test 0 < final_thickness < consolidation_thickness
+    @test isapprox(final_thickness, observed_failure_thickness; atol = 2e-5)
+    @test all(T -> isapprox(T, bottom_temperature; atol = 1e-12), final_temperature)
+    @test final_energy ≈ expected_energy
+    @test minimum(final_temperature) > -100
+end
+
 # `set!(model; h)` must sync a resolved column's moving vertical metric to the ice thickness, so a model built
 # through the public API (without the explicit `initialize_column_interfaces!` boilerplate) is not run on the
 # default reference height.

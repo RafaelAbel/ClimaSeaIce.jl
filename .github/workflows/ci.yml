@@ -6,6 +6,8 @@ on:
       - '.github/workflows/ci.yml'
       - 'src/**'
       - 'test/**'
+      - 'validation/surface_flux_feedback.jl'
+      - 'validation/nonlinear_surface_feedback.jl'
       - 'Project.toml'
   push:
     branches:
@@ -15,6 +17,8 @@ on:
       - '.github/workflows/ci.yml'
       - 'src/**'
       - 'test/**'
+      - 'validation/surface_flux_feedback.jl'
+      - 'validation/nonlinear_surface_feedback.jl'
       - 'Project.toml'
 
 concurrency:

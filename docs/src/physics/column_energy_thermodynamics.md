@@ -114,6 +114,53 @@ returning the excess as a Stefan residual for surface melt.
 with prescribed transmitted flux at the top face and an e-folding attenuation
 scale.
 
+## Temperature-dependent atmospheric fluxes
+
+When atmospheric heat loss depends on the unknown surface temperature, use a
+[`FluxFunction`](@ref) that evaluates that dependence during the surface solve:
+
+```julia
+surface_flux(i, j, grid, T_surface, clock, fields, atmosphere) =
+    atmosphere.exchange_coefficient * (T_surface - atmosphere.temperature)
+
+top_heat_flux = FluxFunction(surface_flux;
+    parameters = (exchange_coefficient = 25.0, temperature = -48.0),
+    top_temperature_dependent = true)
+```
+
+At the upper boundary, positive flux removes heat from the ice. The example
+coefficient has units W m⁻² K⁻¹, and both temperatures are in degrees Celsius.
+A plain flux field is a prescribed flux throughout the solve. Updating it with
+`Q(T_previous)` cannot represent the response to the trial surface temperature
+and can cause alternating cold and melting surface temperatures.
+
+`validation/surface_flux_feedback.jl` reproduces this behavior in a complete
+one-column ice step using a synthetic affine atmospheric law. The `lagged` case
+oscillates; the `live` case evaluates the same law inside the solve and is stable
+for the tested time steps.
+
+`validation/nonlinear_surface_feedback.jl` adds sensible heat, sublimation, and
+longwave radiation using synthetic atmospheric parameters. Atmospheric state and
+exchange coefficients are held fixed during the solve, while saturation humidity
+and emitted radiation retain their nonlinear dependence on surface temperature.
+This follows the fixed-coefficient principle used in
+[Icepack's thermodynamics](https://cice-consortium-icepack.readthedocs.io/en/main/science_guide/sg_thermo.html);
+it is not an implementation of the full Icepack scheme. No new flux type,
+finite-difference derivative, or derivative clipping is required.
+
+The nonlinear experiment has a fixed 1.3 m thickness, eight layers, constant
+conductivity of 2 W m⁻¹ K⁻¹, an insulated base, and no snow or shortwave radiation.
+It reports the surface balance and the column heat-budget residual
+`(E_after - E_before) / Δt + Q(T_surface)`, in W m⁻². The tests cover 60, 300, and
+600 s time steps with radiative-only, weak, and strong turbulent exchange.
+The complete-model affine experiment has a freezing-temperature base, variable
+conductivity, and evolving thickness; absolute temperatures across these two
+experiments are not directly comparable.
+
+A coupler must use the same evaluated flux when accounting for heat exchanged
+with other components. A live surface flux alone does not validate snow coupling,
+melting, dynamics, or the coupled ocean heat and freshwater budgets.
+
 ## Semi-Implicit Step
 
 Conductive temperature transport is linearized using the thermodynamic

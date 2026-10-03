@@ -69,6 +69,10 @@ if TEST_GROUP == "all" || TEST_GROUP == "column_energy"
     include("test_column_energy_thermodynamics.jl")
 end
 
+if TEST_GROUP == "all" || TEST_GROUP == "column_energy" || TEST_GROUP == "surface_flux"
+    include("test_surface_flux_feedback.jl")
+end
+
 if TEST_GROUP == "all" || TEST_GROUP == "netcdf"
     include("test_netcdf_writer.jl")
 end

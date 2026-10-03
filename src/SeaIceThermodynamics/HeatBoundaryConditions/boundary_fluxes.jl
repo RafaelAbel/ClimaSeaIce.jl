@@ -57,13 +57,13 @@ ice-water interface.
 The wrapped callable `func` must have one of the following signatures:
 
 ```julia
-flux = func(i, j, grid, clock, top_temperature, model_fields)
+flux = func(i, j, grid, top_temperature, clock, model_fields)
 ```
 
 when `isnothing(parameters)`, or
 
 ```julia
-flux = func(i, j, grid, clock, top_temperature, model_fields, parameters)
+flux = func(i, j, grid, top_temperature, clock, model_fields, parameters)
 ```
 
 when `!isnothing(parameters)`.
@@ -76,7 +76,7 @@ Example
 
 ```julia
 @inline sensible_heat_flux(i, j, grid, Tₛ, clock, fields, coefficient) =
-    coefficient * (fields.T_air[i, j, 1] - Tₛ)
+    coefficient * (Tₛ - fields.T_air[i, j, 1])
 
 Q = FluxFunction(sensible_heat_flux; parameters = 15.0,
                  top_temperature_dependent = true)

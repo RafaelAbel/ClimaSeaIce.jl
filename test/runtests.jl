@@ -67,6 +67,7 @@ end
 
 if TEST_GROUP == "all" || TEST_GROUP == "column_energy"
     include("test_column_energy_thermodynamics.jl")
+    include("../validation/regional_thin_snow_surface_failure.jl")
 end
 
 if TEST_GROUP == "all" || TEST_GROUP == "column_energy" || TEST_GROUP == "surface_flux"

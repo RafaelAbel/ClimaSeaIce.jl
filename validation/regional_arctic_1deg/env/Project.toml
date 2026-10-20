@@ -1,0 +1,5 @@
+[deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+ClimaSeaIce = "6ba0ff68-24e6-4315-936c-2e99227c95a4"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"

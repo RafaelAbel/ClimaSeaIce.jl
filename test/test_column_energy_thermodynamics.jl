@@ -43,6 +43,7 @@ using ClimaSeaIce.SeaIceThermodynamics:
     temperature_salinity_derivative
 
 using ClimaSeaIce: SeaIceModel
+using ClimaSeaIce: IncrementalRemapping, snow_slab_thermodynamics
 using Adapt
 using Oceananigans
 using Oceananigans.TimeSteppers: Clock, time_step!
@@ -75,6 +76,74 @@ function conservative_column_remap(source_values, source_faces, target_faces; fi
         overlaps = [max(min(zᵗ, source_faces[s+1]) - max(zᵇ, source_faces[s]), 0) for s in eachindex(source_values)]
         (fill_value * (zᵗ - zᵇ) + sum((source_values .- fill_value) .* overlaps)) / (zᵗ - zᵇ)
     end
+end
+
+@testset "Resolved ice and snow with a live atmospheric flux" begin
+    grid = RectilinearGrid(Float64; size = (1, 1, 8), x = (0, 1), y = (0, 1),
+                           z = SeaIceColumnDiscretization((0, 1)),
+                           topology = (Bounded, Bounded, Bounded))
+    relation = FixedSalinityBrinePocketEnergyRelation(Float64)
+    ice = prescribed_salinity_enthalpy_thermodynamics(grid;
+        relation, salinity_profile = 0.0,
+        energy_transport = ConductiveTemperatureTransport(conductivity = 2.0),
+        heat_boundary_conditions = (top = MeltingConstrainedFluxBalance(), bottom = FluxBoundary()))
+    snow = snow_slab_thermodynamics(grid)
+    atmosphere(i, j, grid, T, clock, fields) = 80 * (T + 30)
+    top_flux = FluxFunction(atmosphere; top_temperature_dependent = true)
+    model = SeaIceModel(grid; ice_thermodynamics = ice, snow_thermodynamics = snow,
+                        phase_transitions = relation.phase_transitions,
+                        top_heat_flux = top_flux, bottom_heat_flux = 0.0,
+                        timestepper = :ForwardEuler)
+    set!(model; h = 1.3, ℵ = 1.0, hs = 0.01, u = 0.0, v = 0.0)
+    set!(ice; bulk_salinity = 0.0, temperature = -20.0)
+    set!(snow.top_surface_temperature, -20.0)
+
+    for _ in 1:12
+        time_step!(model, 600.0)
+        Ts = snow.top_surface_temperature[1, 1, 1]
+        Ti = ice.auxiliary.surface_temperature[1, 1, 1]
+        hs = model.snow_thickness[1, 1, 1]
+        @test -30 < Ts < -20
+        @test isapprox(0.31 * (Ti - Ts) / hs, atmosphere(1, 1, grid, Ts, model.clock, fields(model)); atol = 1e-5)
+    end
+end
+
+@testset "Column properties follow conservative ice-volume remapping" begin
+    N = 16
+    grid = RectilinearGrid(Float64; size = (N, N, 3), x = (0, 1), y = (0, 1),
+                           z = SeaIceColumnDiscretization((0, 1)),
+                           topology = (Periodic, Periodic, Bounded), halo = (4, 4, 4))
+    thermodynamics = evolving_salinity_mushy_thermodynamics(grid;
+        energy_transport = ConductiveTemperatureTransport(conductivity = 0.0),
+        salinity_transport = NoSalinityTransport(),
+        heat_boundary_conditions = (top = FluxBoundary(), bottom = FluxBoundary()))
+    model = SeaIceModel(grid; ice_thermodynamics = thermodynamics,
+                        advection = IncrementalRemapping(), timestepper = :ForwardEuler,
+                        top_heat_flux = 0.0, bottom_heat_flux = 0.0)
+    anomaly(x, y) = exp(-((x - 0.35)^2 + (y - 0.45)^2) / 0.1^2)
+    set!(model; h = 1.0, ℵ = (x, y) -> 0.5anomaly(x, y),
+         u = (x, y) -> 0.2, v = (x, y) -> 0.1)
+    set!(thermodynamics; bulk_salinity = (x, y, z) -> 4 + anomaly(x, y),
+         temperature = (x, y, z) -> -5 - anomaly(x, y))
+
+    E⁰ = Array(interior(thermodynamics.fields.internal_energy))
+    V⁰ = Array(interior(model.ice_thickness)) .* Array(interior(model.ice_concentration))
+    S⁰ = Array(interior(thermodynamics.fields.bulk_salinity))
+    energy⁰ = sum(E⁰ .* V⁰)
+    salt⁰ = sum(S⁰ .* V⁰)
+
+    for _ in 1:20
+        time_step!(model, 0.05)
+    end
+
+    E = Array(interior(thermodynamics.fields.internal_energy))
+    S = Array(interior(thermodynamics.fields.bulk_salinity))
+    V = Array(interior(model.ice_thickness)) .* Array(interior(model.ice_concentration))
+    @test isapprox(sum(V), sum(V⁰); rtol = 1e-12)
+    @test isapprox(sum(E .* V), energy⁰; rtol = 1e-12)
+    @test isapprox(sum(S .* V), salt⁰; rtol = 1e-12)
+    @test maximum(abs.(E .- E⁰)) > 1e-6
+    @test all(isfinite, E) && all(isfinite, S)
 end
 
 function column_relation_test_states(::Type{FT}) where FT
@@ -1250,4 +1319,63 @@ end
 
     @test model.external_heat_fluxes.top == 0
     @test first(interior(model.ice_thickness)) > 0.5
+end
+
+@testset "Resolved ice column with finite slab snow closes its surface budget" begin
+    function snow_case(Qatm, hs⁰; Δt = 600.0, initial_temperature = -5.0,
+                       h⁰ = 1.0, snowfall = 0.0)
+        Nz = 8
+        grid = RectilinearGrid(Float64; size = (1, 1, Nz), x = (0, 1), y = (0, 1),
+                               z = SeaIceColumnDiscretization((0, 1)),
+                               topology = (Bounded, Bounded, Bounded))
+        relation = FixedSalinityBrinePocketEnergyRelation(Float64)
+        ice = prescribed_salinity_enthalpy_thermodynamics(grid; relation,
+            salinity_profile = 4.0,
+            energy_transport = ConductiveTemperatureTransport(conductivity = 2.0),
+            heat_boundary_conditions = (top = MeltingConstrainedFluxBalance(),
+                                        bottom = FluxBoundary()))
+        snow = snow_slab_thermodynamics(grid)
+        model = SeaIceModel(grid; ice_thermodynamics = ice, snow_thermodynamics = snow,
+                            phase_transitions = relation.phase_transitions,
+                            top_heat_flux = Qatm, bottom_heat_flux = 0.0,
+                            timestepper = :ForwardEuler, snowfall)
+        set!(model; h = h⁰, ℵ = 1.0, hs = hs⁰, u = 0.0, v = 0.0)
+        set!(ice; bulk_salinity = 4.0, temperature = initial_temperature)
+        E⁰ = sum(interior(ice.fields.internal_energy)) * h⁰ / Nz
+        time_step!(model, Δt)
+        h = first(interior(model.ice_thickness))
+        hs = first(interior(model.snow_thickness))
+        E = sum(interior(ice.fields.internal_energy)) * h / Nz
+        Ts = first(interior(snow.top_surface_temperature))
+        Ti = first(interior(ice.auxiliary.surface_temperature))
+        ρs = model.snow_density[1, 1, 1]
+        snow_melt_energy = ρs * model.phase_transitions.reference_latent_heat * (hs⁰ - hs)
+        residual = E - E⁰ + snow_melt_energy + Qatm * Δt
+        skin_residual = first(interior(ice.auxiliary.snow_surface_residual))
+        ice_mass_flux = model.mass_fluxes.thermodynamics.ice[1, 1, 1]
+        snow_mass_flux = model.mass_fluxes.thermodynamics.snow[1, 1, 1]
+        intercepted_snowfall = model.mass_fluxes.intercepted_snowfall[1, 1, 1]
+        return (; h, hs, Ts, Ti, residual, skin_residual,
+                ice_mass_flux, snow_mass_flux, intercepted_snowfall)
+    end
+
+    cold = snow_case(20.0, 0.2)
+    thin = snow_case(20.0, 1e-7)
+    dust = snow_case(20.0, 1e-12)
+    warm = snow_case(-100.0, 0.2)
+    exhausted = snow_case(-2000.0, 1e-4; Δt = 20.0, initial_temperature = -0.3)
+    accumulating = snow_case(0.0, 0.1; snowfall = 0.003)
+    flooded = snow_case(0.0, 0.2; h⁰ = 0.1)
+    @test cold.hs == 0.2 && cold.Ts < 0
+    @test thin.hs ≈ 1e-7 && thin.Ts < 0 && thin.skin_residual < 1e-5
+    @test dust.hs ≈ 1e-12 && dust.Ts == dust.Ti && dust.skin_residual == 0
+    @test warm.hs < 0.2 && warm.Ts == 0
+    @test exhausted.hs == 0 && exhausted.Ts == 0
+    @test maximum(abs.((cold.residual, warm.residual, exhausted.residual))) < 1e-6
+    @test maximum((cold.skin_residual, warm.skin_residual, exhausted.skin_residual)) < 1e-6
+    @test isapprox(accumulating.hs, 0.1 + 0.003 * 600 / 330; rtol = 1e-12)
+    @test isapprox(accumulating.intercepted_snowfall, 0.003; rtol = 1e-12)
+    @test abs(accumulating.snow_mass_flux) < 1e-12
+    @test flooded.h > 0.1 && flooded.hs < 0.2
+    @test isapprox(flooded.ice_mass_flux, -flooded.snow_mass_flux; rtol = 1e-12)
 end

@@ -8,7 +8,7 @@ struct ColumnThermodynamicFields{E, S, T, LF, BS, TE, TS}
     temperature_salinity_derivative :: TS
 end
 
-struct ColumnAuxiliaryFields{K, DE, CS, I, RHS, A, B, C, ST, BF, SE}
+struct ColumnAuxiliaryFields{K, DE, CS, I, RHS, A, B, C, ST, BF, SE, SR}
     thermal_conductivity :: K
     effective_energy_diffusivity :: DE
     salinity_coupling_diffusivity :: CS
@@ -20,6 +20,7 @@ struct ColumnAuxiliaryFields{K, DE, CS, I, RHS, A, B, C, ST, BF, SE}
     surface_temperature :: ST
     bottom_external_flux :: BF
     surface_start_energy :: SE
+    snow_surface_residual :: SR
 end
 
 struct ColumnSolvers{ES, SS}
@@ -65,8 +66,10 @@ column_thermodynamic_fields(grid) = ColumnThermodynamicFields((Field{Center, Cen
 function column_auxiliary_fields(grid)
     face_fields = (Field{Center, Center, Face}(grid) for _ in 1:4)
     center_fields = (Field{Center, Center, Center}(grid) for _ in 1:4)
-    surface_fields = (Field{Center, Center, Nothing}(grid) for _ in 1:3)
-    return ColumnAuxiliaryFields(face_fields..., center_fields..., surface_fields...)
+    surface_fields = (Field{Center, Center, Nothing}(grid) for _ in 1:4)
+    auxiliary = ColumnAuxiliaryFields(face_fields..., center_fields..., surface_fields...)
+    set!(auxiliary.snow_surface_residual, zero(eltype(grid)))
+    return auxiliary
 end
 
 settable_column_field_value(value) = value
@@ -162,4 +165,3 @@ function Oceananigans.restore_prognostic_state!(thermodynamics::ColumnEnergyTher
 end
 
 Oceananigans.restore_prognostic_state!(::ColumnEnergyThermodynamics, ::Nothing) = nothing
-

@@ -1,0 +1,4 @@
+arctic-thermo/input/
+outputs/
+*.log
+*.bin

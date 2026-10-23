@@ -1,6 +1,6 @@
-# Couple the resolved ice column to a finite slab of snow. All fluxes are
-# upward-positive and per ice-covered area. The snow layer has no heat capacity;
-# its finite latent reservoir is spent before excess energy reaches the ice.
+# Couple the resolved ice column to a finite slab of snow. Column fluxes are
+# upward-positive per ice-covered area; frazil is per grid-cell area. Snow has
+# no heat capacity; its latent reservoir is spent before heat reaches the ice.
 const snow_conduction_thickness_cutoff = 1e-8 # m; thinner films are thermally indistinguishable from bare ice
 
 struct SnowColumnTopFlux{F, H, K, D, L, T, DT}
@@ -123,7 +123,9 @@ end
                                                      clock, model_fields, Δt)
             δhᵇ = column_stefan_thickness_change(phase_transitions, ρi, Qᵇ, Δt)
             δhˢ = column_stefan_thickness_change(phase_transitions, ρi, Qˢ, Δt)
-            ∂t_V = (δhᵇ + δhˢ) / Δt
+            cell_flux_correction = column_cell_flux_correction(external_heat_fluxes.bottom, ℵⁿ, i, j, grid,
+                                                               zero(eltype(grid)), clock, model_fields)
+            ∂t_V = ℵⁿ * (δhᵇ + δhˢ) / Δt - cell_flux_correction / (ρi * phase_transitions.reference_latent_heat)
             surface_shift = δhˢ
         else
             Tb = column_bottom_reference_temperature(heat_boundary_conditions.bottom,
@@ -134,7 +136,8 @@ end
                                                 Tb, hⁿ, i, j, grid, fields, relation,
                                                 clock, model_fields)
             Qb = getflux(external_heat_fluxes.bottom, i, j, grid, Tb, clock, model_fields)
-            ∂t_V = (Qu - Qb) / ℰ
+            cell_flux_correction = column_cell_flux_correction(external_heat_fluxes.bottom, ℵⁿ, i, j, grid, Tb, clock, model_fields)
+            ∂t_V = (ℵⁿ * (Qu - Qb) - cell_flux_correction) / ℰ
             surface_shift = zero(eltype(grid))
         end
 

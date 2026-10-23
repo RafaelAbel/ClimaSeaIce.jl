@@ -41,7 +41,8 @@ export SlabThermodynamics,
        UniformThicknessDistribution,
        GammaThicknessDistribution,
        FluxFunction,
-       LinearizedSurfaceFlux
+       LinearizedSurfaceFlux,
+       ColumnBasalHeatFlux
 
 using Adapt: Adapt
 using Oceananigans: Oceananigans, fields
@@ -91,6 +92,11 @@ end
 @inline function melting_temperature(liquidus::LinearLiquidus, salinity)
     return liquidus.freshwater_melting_temperature - liquidus.slope * salinity
 end
+
+# The ocean's in situ freezing point decreases with depth (z < 0), while
+# the two-argument relation above remains the column's surface freezing point.
+@inline melting_temperature(liquidus::LinearLiquidus, salinity, depth) =
+    melting_temperature(liquidus, salinity) + oftype(liquidus.slope, 7.89e-4) * depth
 
 Base.summary(lq::LinearLiquidus) = "LinearLiquidus(freshwater_melting_temperature = $(lq.freshwater_melting_temperature), slope = $(lq.slope))"
 

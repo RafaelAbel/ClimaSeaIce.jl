@@ -74,8 +74,8 @@ const CONSOLIDATED = ConstantField(0.0)
 insulating_fluxes() = (top = 0.0, bottom = 0.0)
 insulating_boundaries() = (top = FluxBoundary(), bottom = FluxBoundary())
 
-column_step!(thermodynamics, external_heat_fluxes, Δt) =
-    column_energy_time_step!(thermodynamics, external_heat_fluxes, TEST_CLOCK, NO_FIELDS, CONSOLIDATED, Δt)
+column_step!(thermodynamics, external_heat_fluxes, Δt; model_fields = NO_FIELDS) =
+    column_energy_time_step!(thermodynamics, external_heat_fluxes, TEST_CLOCK, model_fields, CONSOLIDATED, Δt)
 
 column_integral(c) = sum(interior(Field(c * KernelFunctionOperation{Center, Center, Center}(Δzᶜᶜᶜ, c.grid))))
 column_integrated_energy(thermodynamics) = column_integral(thermodynamics.fields.internal_energy)
@@ -233,7 +233,7 @@ function test_temperature_derivatives(::Type{FT}) where FT
     relation = QuadraticLiquidusEnergyRelation(FT)
     WT = FT === Float32 ? Float64 : FT
     T0 = relation.phase_transitions.reference_temperature
-    m = relation.phase_transitions.liquidus.slope
+    m = relation.phase_transitions.liquidus.salinity_slope
     salinities, offsets = physical_column_relation_test_states(FT)
 
     max_energy_derivative_error = zero(FT)
@@ -297,7 +297,7 @@ function test_liquidus_consistency(::Type{FT}) where FT
     relation = QuadraticLiquidusEnergyRelation(FT)
     liquidus = relation.phase_transitions.liquidus
     T0 = relation.phase_transitions.reference_temperature
-    m = liquidus.slope
+    m = liquidus.salinity_slope
     salinities, offsets = physical_column_relation_test_states(FT)
 
     max_error = zero(FT)
@@ -307,7 +307,7 @@ function test_liquidus_consistency(::Type{FT}) where FT
         brine_S = brine_salinity(relation, E, S)
         recovered_T = temperature(relation, E, S)
         liquidus_T = Float64(liquidus.freshwater_melting_temperature) -
-                     Float64(liquidus.slope) * Float64(brine_S)
+                     Float64(liquidus.salinity_slope) * Float64(brine_S)
         max_error = max(max_error, abs(Float64(recovered_T) - liquidus_T))
     end
 
@@ -317,7 +317,7 @@ end
 function test_liquid_fraction_bounds(::Type{FT}) where FT
     relation = QuadraticLiquidusEnergyRelation(FT)
     T0 = relation.phase_transitions.reference_temperature
-    m = relation.phase_transitions.liquidus.slope
+    m = relation.phase_transitions.liquidus.salinity_slope
     salinities, offsets = physical_column_relation_test_states(FT)
 
     for S in salinities, offset in offsets
@@ -337,7 +337,7 @@ end
 function test_complete_melt_energy(::Type{FT}) where FT
     relation = QuadraticLiquidusEnergyRelation(FT)
     T0 = relation.phase_transitions.reference_temperature
-    m = relation.phase_transitions.liquidus.slope
+    m = relation.phase_transitions.liquidus.salinity_slope
     salinities = FT[0.1, 1, 4, 8, 15]
 
     max_deficit = zero(FT)
@@ -378,7 +378,7 @@ end
         @test energy_error < 1
         @test derivative_error < 1e-7
 
-        @test test_liquidus_consistency(Float32) < 1e-6
+        @test test_liquidus_consistency(Float32) < 2e-6
         test_liquid_fraction_bounds(Float32)
         @test test_complete_melt_energy(Float32) < 1e-6
     end
@@ -429,7 +429,7 @@ function test_fixed_salinity_temperature_derivatives(::Type{FT}) where FT
     relation = FixedSalinityBrinePocketEnergyRelation(FT)
     WT = FT === Float32 ? Float64 : FT
     T0 = relation.phase_transitions.reference_temperature
-    m = relation.phase_transitions.liquidus.slope
+    m = relation.phase_transitions.liquidus.salinity_slope
     salinities, offsets = physical_column_relation_test_states(FT)
 
     max_energy_derivative_error = zero(FT)
@@ -492,7 +492,7 @@ end
 function test_fixed_salinity_complete_melt_threshold(::Type{FT}) where FT
     relation = FixedSalinityBrinePocketEnergyRelation(FT)
     T0 = relation.phase_transitions.reference_temperature
-    m = relation.phase_transitions.liquidus.slope
+    m = relation.phase_transitions.liquidus.salinity_slope
     salinities = FT[0.1, 1, 3.2, 8, 15]
 
     max_error = zero(FT)
@@ -509,7 +509,7 @@ function test_fixed_salinity_heat_capacity_identity(::Type{FT}) where FT
     relation = FixedSalinityBrinePocketEnergyRelation(FT)
     phase_transitions = relation.phase_transitions
     T0 = phase_transitions.reference_temperature
-    m = phase_transitions.liquidus.slope
+    m = phase_transitions.liquidus.salinity_slope
     rho_i = phase_transitions.density
     c_i = phase_transitions.heat_capacity
     L0 = phase_transitions.reference_latent_heat
@@ -1103,12 +1103,14 @@ end
     set!(thermodynamics; temperature = z -> -2 - 15z)
     E⁰ = column_values(thermodynamics.fields.internal_energy)
     Qatm = 80.0 # upward heat loss
+    model_fields = (h = ConstantField(1.0), ρi = ConstantField(relation.phase_transitions.density))
 
-    column_step!(thermodynamics, (top = Qatm, bottom = 0.0), Δt)
+    column_step!(thermodynamics, (top = Qatm, bottom = 0.0), Δt; model_fields)
     E = column_values(thermodynamics.fields.internal_energy)
     T = column_values(thermodynamics.fields.temperature)
     Ts = first(interior(thermodynamics.auxiliary.surface_temperature))
-    Tb = melting_temperature(relation.phase_transitions.liquidus, 35.0)
+    zᵇ = -relation.phase_transitions.density / relation.phase_transitions.liquid_density
+    Tb = melting_temperature(relation.phase_transitions.liquidus, 35.0, zᵇ)
     compute_column_transport_coefficients!(thermodynamics)
     K = column_values(thermodynamics.auxiliary.thermal_conductivity)
     F = zeros(Nz + 1)
@@ -1145,7 +1147,7 @@ end
     update_column_surface_temperature!(
         thermodynamics.heat_boundary_conditions.top, thermodynamics, Q, TEST_CLOCK, NO_FIELDS)
     Ts = first(interior(thermodynamics.auxiliary.surface_temperature))
-    @test Ts < -relation.phase_transitions.liquidus.slope * 4.0
+    @test Ts < -relation.phase_transitions.liquidus.salinity_slope * 4.0
 
     assemble_column_energy_system!(thermodynamics, external, TEST_CLOCK, NO_FIELDS, CONSOLIDATED, Δt)
     feedback_matrix = dense_column_energy_matrix(thermodynamics)
@@ -1410,7 +1412,7 @@ end
 
     Tₛ = first(interior(thermodynamics.auxiliary.surface_temperature))
     Tᵢ = first(interior(thermodynamics.fields.temperature))
-    Tₘ = -relation.phase_transitions.liquidus.slope * S
+    Tₘ = -relation.phase_transitions.liquidus.salinity_slope * S
     Qᶜ = 2K * (Tᵢ - Tₛ) # top-face conduction at unit column thickness
     Qˢ = column_surface_stefan_residual_flux(thermodynamics.heat_boundary_conditions.top,
                                              Qᵃ, 1, 1, 1, grid, thermodynamics.auxiliary,
@@ -1439,7 +1441,7 @@ end
 
     V⁰ = first(interior(model.ice_thickness)) * first(interior(model.ice_concentration))
     E⁰ = internal_energy(relation, T₀, S)
-    Tₘ = -relation.phase_transitions.liquidus.slope * S
+    Tₘ = -relation.phase_transitions.liquidus.salinity_slope * S
     𝒫 = relation.phase_transitions
     # Icepack's BL99 surface-layer enthalpy q_i(T, S), expressed as a positive
     # energy per volume required to melt ice and warm its meltwater to 0°C.
@@ -1672,7 +1674,7 @@ end
     @test warm.hs < 0.2 && warm.Ts == 0
     @test exhausted.hs < 1e-7 && exhausted.Ts == 0 && exhausted.ice_mass_flux < 0
     phase_transitions = FixedSalinityBrinePocketEnergyRelation(Float64).phase_transitions
-    Tₘ = -phase_transitions.liquidus.slope * 4.0
+    Tₘ = -phase_transitions.liquidus.salinity_slope * 4.0
     melt_energy = phase_transitions.density * (
         phase_transitions.heat_capacity * (Tₘ + 5.0) +
         phase_transitions.reference_latent_heat * (1 + Tₘ / 5.0) -

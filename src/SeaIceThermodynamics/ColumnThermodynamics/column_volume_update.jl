@@ -66,7 +66,7 @@ end
 @inline function column_basal_stefan_flux(boundary::ColumnDirichletBoundary, ext, fields, auxiliary, grid, relation, clock, model_fields, i, j)
     conductance = column_boundary_temperature_conductance(i, j, 1, 1, grid, auxiliary)
     T₁ = @inbounds fields.temperature[i, j, 1]
-    Tᵇ = column_dirichlet_temperature(boundary, i, j, grid, relation)
+    Tᵇ = column_dirichlet_temperature(boundary, i, j, grid, relation, model_fields)
     Qᵇ = getflux(ext, i, j, grid, Tᵇ, clock, model_fields)
     return conductance * (Tᵇ - T₁) - Qᵇ
 end
@@ -75,7 +75,7 @@ end
 @inline column_unconsolidated_top_flux(bc, ext, conductivity, Tᵇ, h, i, j, grid, fields, relation, clock, model_fields) = getflux(ext, i, j, grid, Tᵇ, clock, model_fields)
 
 @inline function column_unconsolidated_top_flux(bc::ColumnDirichletBoundary, ext, conductivity, Tᵇ, h, i, j, grid, fields, relation, clock, model_fields)
-    Tᵗ = column_dirichlet_temperature(bc, i, j, grid, relation)
+    Tᵗ = column_dirichlet_temperature(bc, i, j, grid, relation, model_fields)
     k  = ice_thermal_conductivity(conductivity, Tᵗ, @inbounds(fields.bulk_salinity[i, j, 1]))
     Qi = ifelse(h ≤ zero(h), zero(h), k / h * (Tᵇ - Tᵗ))
     return Qi + getflux(ext, i, j, grid, Tᵗ, clock, model_fields)
@@ -108,7 +108,7 @@ end
             ∂t_V = ℵⁿ * (δhᵇ + δhˢ) / Δt - cell_flux_correction / (ρᵢ * phase_transitions.reference_latent_heat)
             δzˢ = δhˢ
         else
-            Tᵇ = column_bottom_reference_temperature(bcs.bottom, i, j, grid, fields, relation)
+            Tᵇ = column_bottom_reference_temperature(bcs.bottom, i, j, grid, fields, relation, model_fields)
             ℰ  = ρᵢ * latent_heat(phase_transitions, Tᵇ)
             Qᵘ = column_unconsolidated_top_flux(bcs.top, Qe.top, conductivity, Tᵇ, hⁿ, i, j, grid, fields, relation, clock, model_fields)
             Qᵇ = getflux(Qe.bottom, i, j, grid, Tᵇ, clock, model_fields)

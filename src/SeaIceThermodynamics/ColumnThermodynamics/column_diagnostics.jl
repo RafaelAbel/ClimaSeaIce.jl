@@ -130,26 +130,26 @@ end
 
 const ColumnDirichletBoundary = Union{PrescribedTemperature, IceWaterThermalEquilibrium}
 
-@inline column_dirichlet_temperature(bc, i, j, grid, relation) = bottom_temperature(i, j, grid, bc, relation.phase_transitions.liquidus)
+@inline column_dirichlet_temperature(bc, i, j, grid, relation, model_fields) = bottom_temperature(i, j, grid, bc, relation.phase_transitions, model_fields)
 
-@inline column_bottom_reference_temperature(bc, i, j, grid, fields, relation) = @inbounds fields.temperature[i, j, 1]
-@inline column_bottom_reference_temperature(bc::ColumnDirichletBoundary, i, j, grid, fields, relation) = column_dirichlet_temperature(bc, i, j, grid, relation)
+@inline column_bottom_reference_temperature(bc, i, j, grid, fields, relation, model_fields) = @inbounds fields.temperature[i, j, 1]
+@inline column_bottom_reference_temperature(bc::ColumnDirichletBoundary, i, j, grid, fields, relation, model_fields) = column_dirichlet_temperature(bc, i, j, grid, relation, model_fields)
 
 # Congelation at a Dirichlet base lays down ice at the interface temperature (the BL99 new-ice enthalpy).
-@inline moving_bottom_boundary_value(boundary, i, j, grid, fields, relation, default) = default
+@inline moving_bottom_boundary_value(boundary, i, j, grid, fields, relation, default, model_fields) = default
 
-@inline function moving_bottom_boundary_value(boundary::ColumnDirichletBoundary, i, j, grid, fields, relation, default)
-    Tᵇ = column_dirichlet_temperature(boundary, i, j, grid, relation)
+@inline function moving_bottom_boundary_value(boundary::ColumnDirichletBoundary, i, j, grid, fields, relation, default, model_fields)
+    Tᵇ = column_dirichlet_temperature(boundary, i, j, grid, relation, model_fields)
     return internal_energy(relation, Tᵇ, @inbounds(fields.bulk_salinity[i, j, 1]))
 end
 
 # Upwind value swept across face k; boundary faces sweep in the bottom (top) boundary value when the ice grows.
-@inline function moving_face_displacement_flux(i, j, k, grid, c, fields, relation, bottom_boundary)
+@inline function moving_face_displacement_flux(i, j, k, grid, c, fields, relation, bottom_boundary, model_fields)
     Nz = size(grid, 3)
     δz = column_face_displacement(i, j, k, grid)
 
     @inbounds begin
-        cᵇ = moving_bottom_boundary_value(bottom_boundary, i, j, grid, fields, relation, c[i, j, 1])
+        cᵇ = moving_bottom_boundary_value(bottom_boundary, i, j, grid, fields, relation, c[i, j, 1], model_fields)
         interior_value = ifelse(δz >= 0, c[i, j, min(k, Nz)], c[i, j, max(k-1, 1)])
         value = ifelse((k == 1) & (δz < 0), cᵇ, interior_value)
     end

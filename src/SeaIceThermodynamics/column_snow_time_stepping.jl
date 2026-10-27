@@ -163,7 +163,7 @@ end
             surface_shift = δhˢ
         else
             Tb = column_bottom_reference_temperature(heat_boundary_conditions.bottom,
-                                                     i, j, grid, fields, relation)
+                                                     i, j, grid, fields, relation, model_fields)
             ℰ = ρi * latent_heat(phase_transitions, Tb)
             Qu = column_unconsolidated_top_flux(heat_boundary_conditions.top,
                                                 external_heat_fluxes.top, conductivity,

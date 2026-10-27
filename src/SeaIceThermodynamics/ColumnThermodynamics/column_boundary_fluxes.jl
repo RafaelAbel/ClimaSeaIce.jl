@@ -76,7 +76,7 @@ end
     T  = @inbounds fields.temperature[i, j, k]
     E  = @inbounds fields.internal_energy[i, j, k]
     TE = @inbounds fields.temperature_energy_derivative[i, j, k]
-    Tᵇ = column_dirichlet_temperature(bc, i, j, grid, relation)
+    Tᵇ = column_dirichlet_temperature(bc, i, j, grid, relation, model_fields)
     return conductance * (T - Tᵇ - TE * E)
 end
 
@@ -86,7 +86,7 @@ end
     T  = @inbounds fields.temperature[i, j, k]
     E  = @inbounds fields.internal_energy[i, j, k]
     TE = @inbounds fields.temperature_energy_derivative[i, j, k]
-    Tᵇ = column_dirichlet_temperature(bc, i, j, grid, relation)
+    Tᵇ = column_dirichlet_temperature(bc, i, j, grid, relation, model_fields)
     return conductance * (Tᵇ - T + TE * E) - getflux(ext, i, j, grid, Tᵇ, clock, model_fields)
 end
 

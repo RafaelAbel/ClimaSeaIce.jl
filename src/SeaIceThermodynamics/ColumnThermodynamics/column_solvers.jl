@@ -59,8 +59,8 @@ end
             flux_tendency = (right_flux + I[i, j, k+1] - left_flux - I[i, j, k]) / Δzᶜᶜᶜ(i, j, k, grid)
 
             # Conservative moving-grid balance: Jⁿ⁺¹ Δr Eⁿ⁺¹ = Jⁿ Δr Eⁿ + δzᵤ Eᵘᵖᵤ - δzₗ Eᵘᵖₗ + Δt (Fᵤ - Fₗ)
-            moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, initial_energy, fields, relation, bcs.bottom) -
-                               moving_face_displacement_flux(i, j, k, grid, initial_energy, fields, relation, bcs.bottom)) / Δzᶜᶜᶜ(i, j, k, grid)
+            moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, initial_energy, fields, relation, bcs.bottom, model_fields) -
+                               moving_face_displacement_flux(i, j, k, grid, initial_energy, fields, relation, bcs.bottom, model_fields)) / Δzᶜᶜᶜ(i, j, k, grid)
 
             auxiliary.energy_rhs[i, j, k] = previous_to_current_column_metric_ratio(i, j, k, grid) * initial_energy[i, j, k] + moving_tendency + Δt * flux_tendency
         else
@@ -190,8 +190,8 @@ solve_column_energy_system!(thermodynamics::ColumnEnergyThermodynamics) = solve!
     right_factor = k == Nz ? zero(Δt) : diffusion_factor(i, j, k, k+1, grid, κS, Δt)
     store_tridiagonal_row!(auxiliary, i, j, k, Nz, left_factor, right_factor, zero(Δt))
 
-    moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, S, fields, nothing, nothing) -
-                       moving_face_displacement_flux(i, j, k, grid, S, fields, nothing, nothing)) / Δzᶜᶜᶜ(i, j, k, grid)
+    moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, S, fields, nothing, nothing, nothing) -
+                       moving_face_displacement_flux(i, j, k, grid, S, fields, nothing, nothing, nothing)) / Δzᶜᶜᶜ(i, j, k, grid)
 
     @inbounds auxiliary.energy_rhs[i, j, k] = previous_to_current_column_metric_ratio(i, j, k, grid) * S[i, j, k] + moving_tendency
 end

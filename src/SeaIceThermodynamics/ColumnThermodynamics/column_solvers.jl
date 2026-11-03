@@ -1,13 +1,13 @@
-@inline function store_tridiagonal_row!(auxiliary, i, j, k, Nz, left_factor, right_factor, boundary_factor)
+@inline function store_tridiagonal_row!(auxiliary, i, j, k, Nz, left_factor, right_factor, left_neighbor, right_neighbor, boundary_factor)
     @inbounds begin
         auxiliary.diagonal[i, j, k] = 1 + left_factor + right_factor + boundary_factor
-        k > 1 && (auxiliary.lower_diagonal[i, j, k-1] = -left_factor)
-        auxiliary.upper_diagonal[i, j, k] = -right_factor
+        k > 1 && (auxiliary.lower_diagonal[i, j, k-1] = -left_neighbor)
+        auxiliary.upper_diagonal[i, j, k] = -right_neighbor
         k == Nz && (auxiliary.lower_diagonal[i, j, k] = zero(left_factor))
     end
 end
 
-@kernel function _assemble_column_energy_system!(auxiliary, fields, grid, heat_boundary_conditions, external_heat_fluxes, relation, consolidation_thickness, clock, model_fields, Δt)
+@kernel function _assemble_column_energy_system!(auxiliary, fields, grid, heat_boundary_conditions, external_heat_fluxes, energy_transport, relation, consolidation_thickness, clock, model_fields, Δt)
     i, j, k = @index(Global, NTuple)
     Nz = size(grid, 3)
     bcs = heat_boundary_conditions
@@ -15,26 +15,26 @@ end
 
     @inbounds begin
         if column_consolidated(consolidation_thickness, grid, i, j)
-            D = auxiliary.effective_energy_diffusivity
-            C = auxiliary.salinity_coupling_diffusivity
+            κE = energy_diffusivity(energy_transport)
             I = auxiliary.shortwave_flux
-            S = fields.bulk_salinity
             E = fields.internal_energy
 
-            left_factor  = k == 1  ? zero(Δt) : diffusion_factor(i, j, k, k, grid, D, Δt)
-            right_factor = k == Nz ? zero(Δt) : diffusion_factor(i, j, k, k+1, grid, D, Δt)
+            left_factor  = k == 1  ? zero(Δt) : diffusion_factor(i, j, k, k, k, grid, auxiliary, fields, κE, Δt)
+            right_factor = k == Nz ? zero(Δt) : diffusion_factor(i, j, k, k+1, k, grid, auxiliary, fields, κE, Δt)
+            left_neighbor = k == 1 ? zero(Δt) : diffusion_factor(i, j, k, k, k-1, grid, auxiliary, fields, κE, Δt)
+            right_neighbor = k == Nz ? zero(Δt) : diffusion_factor(i, j, k, k+1, k+1, grid, auxiliary, fields, κE, Δt)
 
             boundary_factor = zero(Δt)
             k == 1  && (boundary_factor += column_bottom_boundary_energy_factor(bcs.bottom, Qe.bottom, i, j, k, grid, auxiliary, fields, relation, clock, model_fields, Δt))
             k == Nz && (boundary_factor += column_top_boundary_energy_factor(bcs.top, Qe.top, i, j, k, grid, auxiliary, fields, relation, clock, model_fields, Δt))
 
-            store_tridiagonal_row!(auxiliary, i, j, k, Nz, left_factor, right_factor, boundary_factor)
+            store_tridiagonal_row!(auxiliary, i, j, k, Nz, left_factor, right_factor, left_neighbor, right_neighbor, boundary_factor)
 
             left_flux = k == 1 ? column_bottom_boundary_energy_flux(bcs.bottom, Qe.bottom, i, j, k, grid, auxiliary, fields, relation, clock, model_fields, Δt) :
-                                 salinity_coupling_flux(i, j, k, grid, C, S)
+                                 column_affine_conductive_flux(i, j, k, grid, auxiliary, fields)
 
             right_flux = k == Nz ? column_top_boundary_energy_flux(bcs.top, Qe.top, i, j, k, grid, auxiliary, fields, relation, clock, model_fields, Δt) :
-                                   salinity_coupling_flux(i, j, k+1, grid, C, S)
+                                   column_affine_conductive_flux(i, j, k+1, grid, auxiliary, fields)
 
             flux_tendency = (right_flux + I[i, j, k+1] - left_flux - I[i, j, k]) / Δzᶜᶜᶜ(i, j, k, grid)
 
@@ -45,7 +45,7 @@ end
             auxiliary.energy_rhs[i, j, k] = previous_to_current_column_metric_ratio(i, j, k, grid) * E[i, j, k] + moving_tendency + Δt * flux_tendency
         else
             # Unconsolidated columns hold their internal energy; the slab balance in the volume update takes the growth.
-            store_tridiagonal_row!(auxiliary, i, j, k, Nz, zero(Δt), zero(Δt), zero(Δt))
+            store_tridiagonal_row!(auxiliary, i, j, k, Nz, zero(Δt), zero(Δt), zero(Δt), zero(Δt), zero(Δt))
             auxiliary.energy_rhs[i, j, k] = fields.internal_energy[i, j, k]
         end
     end
@@ -61,7 +61,7 @@ function assemble_column_energy_system!(thermodynamics::ColumnEnergyThermodynami
     grid = thermodynamics.fields.internal_energy.grid
     launch!(architecture(grid), grid, :xyz, _assemble_column_energy_system!,
             thermodynamics.auxiliary, thermodynamics.fields, grid, thermodynamics.heat_boundary_conditions,
-            external_heat_fluxes, thermodynamics.relation, consolidation_thickness, clock, model_fields, Δt)
+            external_heat_fluxes, thermodynamics.energy_transport, thermodynamics.relation, consolidation_thickness, clock, model_fields, Δt)
     return nothing
 end
 
@@ -104,7 +104,7 @@ solve_column_energy_system!(thermodynamics::ColumnEnergyThermodynamics) = solve!
 
     left_factor  = k == 1  ? zero(Δt) : diffusion_factor(i, j, k, k, grid, κS, Δt)
     right_factor = k == Nz ? zero(Δt) : diffusion_factor(i, j, k, k+1, grid, κS, Δt)
-    store_tridiagonal_row!(auxiliary, i, j, k, Nz, left_factor, right_factor, zero(Δt))
+    store_tridiagonal_row!(auxiliary, i, j, k, Nz, left_factor, right_factor, left_factor, right_factor, zero(Δt))
 
     moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, S, fields, nothing, nothing) -
                        moving_face_displacement_flux(i, j, k, grid, S, fields, nothing, nothing)) / Δzᶜᶜᶜ(i, j, k, grid)

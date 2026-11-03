@@ -117,6 +117,11 @@ end
 @inline diffusion_factor(i, j, kᶜ, kᶠ, grid, K::Number, Δt) = Δt * K / (Δzᶜᶜᶜ(i, j, kᶜ, grid) * Δzᶜᶜᶠ(i, j, kᶠ, grid))
 @inline diffusion_factor(i, j, kᶜ, kᶠ, grid, K, Δt) = diffusion_factor(i, j, kᶜ, kᶠ, grid, @inbounds(K[i, j, kᶠ]), Δt)
 
+@inline function diffusion_factor(i, j, cell_index, face_index, derivative_index, grid, auxiliary, fields, κE, Δt)
+    @inbounds D = auxiliary.thermal_conductivity[i, j, face_index] * fields.temperature_energy_derivative[i, j, derivative_index] + κE
+    return diffusion_factor(i, j, cell_index, face_index, grid, D, Δt)
+end
+
 @inline previous_to_current_column_metric_ratio(i, j, k, grid::SeaIceColumnGrid) = previous_column_height(grid, i, j) / column_height(grid, i, j)
 
 # Swept-face displacement: base motion plus the thickness-stretch term (σⁿ - σ⁻) r.
@@ -157,7 +162,15 @@ end
     return δz * value
 end
 
-@inline salinity_coupling_flux(i, j, k, grid, C, S) = @inbounds(C[i, j, k] * (S[i, j, k] - S[i, j, k-1]) / Δzᶜᶜᶠ(i, j, k, grid))
+# Affine part of κ ∂z[T(E*, S) + (∂T/∂E)* (E - E*)].
+@inline function column_affine_conductive_flux(i, j, k, grid, auxiliary, fields)
+    @inbounds begin
+        T, E, TE = fields.temperature, fields.internal_energy, fields.temperature_energy_derivative
+        bottom_offset = T[i, j, k-1] - TE[i, j, k-1] * E[i, j, k-1]
+        top_offset = T[i, j, k] - TE[i, j, k] * E[i, j, k]
+        return auxiliary.thermal_conductivity[i, j, k] * (top_offset - bottom_offset) / Δzᶜᶜᶠ(i, j, k, grid)
+    end
+end
 
 @inline column_boundary_temperature_conductance(i, j, kf, kc, grid, auxiliary) = @inbounds 2 * auxiliary.thermal_conductivity[i, j, kf] / Δzᶜᶜᶜ(i, j, kc, grid)
 

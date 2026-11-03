@@ -1251,3 +1251,22 @@ end
     @test model.external_heat_fluxes.top == 0
     @test first(interior(model.ice_thickness)) > 0.5
 end
+
+@testset "Steady linear temperature with saline enthalpy" begin
+    for FT in (Float32, Float64), salinity in (FT(4), FixedDrainedIceSalinityProfile(FT))
+        grid = RectilinearGrid(CPU(), FT; size = 8,
+                               z = SeaIceColumnDiscretization((0, 1)),
+                               topology = (Flat, Flat, Bounded))
+        th = prescribed_salinity_enthalpy_thermodynamics(grid;
+            relation = FixedSalinityBrinePocketEnergyRelation(FT),
+            salinity_profile = salinity,
+            energy_transport = ConductiveTemperatureTransport(conductivity = FT(2)),
+            heat_boundary_conditions = (bottom = PrescribedTemperature(FT(-3)),
+                                        top = PrescribedTemperature(FT(-0.3))))
+        set!(th; bulk_salinity = salinity, temperature = z -> -3 + 2.7z)
+        initial_temperature = copy(interior(th.fields.temperature))
+        column_step!(th, insulating_fluxes(), FT(100000))
+        drift = maximum(abs, interior(th.fields.temperature) .- initial_temperature)
+        @test drift <= 100eps(FT) * maximum(abs, initial_temperature)
+    end
+end

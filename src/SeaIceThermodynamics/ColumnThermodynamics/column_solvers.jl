@@ -7,7 +7,7 @@
     end
 end
 
-@kernel function _assemble_column_energy_system!(auxiliary, fields, grid, heat_boundary_conditions, external_heat_fluxes, energy_transport, relation, consolidation_thickness, clock, model_fields, Δt)
+@kernel function _assemble_column_energy_system!(auxiliary, fields, initial_energy, grid, heat_boundary_conditions, external_heat_fluxes, energy_transport, relation, consolidation_thickness, clock, model_fields, Δt)
     i, j, k = @index(Global, NTuple)
     Nz = size(grid, 3)
     bcs = heat_boundary_conditions
@@ -17,7 +17,6 @@ end
         if column_consolidated(consolidation_thickness, grid, i, j)
             κE = energy_diffusivity(energy_transport)
             I = auxiliary.shortwave_flux
-            E = fields.internal_energy
 
             left_factor  = k == 1  ? zero(Δt) : diffusion_factor(i, j, k, k, k, grid, auxiliary, fields, κE, Δt)
             right_factor = k == Nz ? zero(Δt) : diffusion_factor(i, j, k, k+1, k, grid, auxiliary, fields, κE, Δt)
@@ -39,15 +38,29 @@ end
             flux_tendency = (right_flux + I[i, j, k+1] - left_flux - I[i, j, k]) / Δzᶜᶜᶜ(i, j, k, grid)
 
             # Conservative moving-grid balance: Jⁿ⁺¹ Δr Eⁿ⁺¹ = Jⁿ Δr Eⁿ + δzᵤ Eᵘᵖᵤ - δzₗ Eᵘᵖₗ + Δt (Fᵤ - Fₗ)
-            moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, E, fields, relation, bcs.bottom) -
-                               moving_face_displacement_flux(i, j, k, grid, E, fields, relation, bcs.bottom)) / Δzᶜᶜᶜ(i, j, k, grid)
+            moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, initial_energy, fields, relation, bcs.bottom) -
+                               moving_face_displacement_flux(i, j, k, grid, initial_energy, fields, relation, bcs.bottom)) / Δzᶜᶜᶜ(i, j, k, grid)
 
-            auxiliary.energy_rhs[i, j, k] = previous_to_current_column_metric_ratio(i, j, k, grid) * E[i, j, k] + moving_tendency + Δt * flux_tendency
+            auxiliary.energy_rhs[i, j, k] = previous_to_current_column_metric_ratio(i, j, k, grid) * initial_energy[i, j, k] + moving_tendency + Δt * flux_tendency
         else
             # Unconsolidated columns hold their internal energy; the slab balance in the volume update takes the growth.
             store_tridiagonal_row!(auxiliary, i, j, k, Nz, zero(Δt), zero(Δt), zero(Δt), zero(Δt), zero(Δt))
-            auxiliary.energy_rhs[i, j, k] = fields.internal_energy[i, j, k]
+            auxiliary.energy_rhs[i, j, k] = initial_energy[i, j, k]
         end
+    end
+end
+
+@kernel function _column_energy_residual!(residual, auxiliary, E, grid)
+    i, j, k = @index(Global, NTuple)
+    Nz = size(grid, 3)
+    @inbounds begin
+        lower = k > 1 ? auxiliary.lower_diagonal[i, j, k-1] * E[i, j, k-1] : zero(eltype(grid))
+        upper = k < Nz ? auxiliary.upper_diagonal[i, j, k] * E[i, j, k+1] : zero(eltype(grid))
+        diagonal = auxiliary.diagonal[i, j, k] * E[i, j, k]
+        rhs = auxiliary.energy_rhs[i, j, k]
+        roundoff = 4eps(eltype(grid)) * (abs(diagonal) + abs(lower) + abs(upper) + abs(rhs))
+        error = max(abs(diagonal + lower + upper - rhs) - roundoff, zero(rhs))
+        residual[i, j, k] = ifelse(Oceananigans.ImmersedBoundaries.immersed_cell(i, j, k, grid), zero(error), error)
     end
 end
 
@@ -55,12 +68,13 @@ end
     assemble_column_energy_system!(thermodynamics, external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt)
 
 Assemble the tridiagonal backward-Euler system of one internal-energy step. Columns thinner than
-`consolidation_thickness` get an identity row.
+`consolidation_thickness` get an identity row. `initial_energy` holds the start-of-step enthalpy
+while the current fields specify the conductive-flux linearization.
 """
-function assemble_column_energy_system!(thermodynamics::ColumnEnergyThermodynamics, external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt)
+function assemble_column_energy_system!(thermodynamics::ColumnEnergyThermodynamics, external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt; initial_energy = thermodynamics.fields.internal_energy)
     grid = thermodynamics.fields.internal_energy.grid
     launch!(architecture(grid), grid, :xyz, _assemble_column_energy_system!,
-            thermodynamics.auxiliary, thermodynamics.fields, grid, thermodynamics.heat_boundary_conditions,
+            thermodynamics.auxiliary, thermodynamics.fields, initial_energy, grid, thermodynamics.heat_boundary_conditions,
             external_heat_fluxes, thermodynamics.energy_transport, thermodynamics.relation, consolidation_thickness, clock, model_fields, Δt)
     return nothing
 end
@@ -74,7 +88,8 @@ end
     FT = eltype(grid)
     conductance > eps(FT) || return Tₛ⁻
     balance(T) = getflux(external_flux, i, j, grid, T, clock, model_fields) - conductance * (T_top - T)
-    return find_zero(balance, SecantMethod{FT}(Tₛ⁻ + one(FT), Tₛ⁻), CompactSolution()).root
+    tolerance = SolutionTolerance(eps(FT) * max(one(FT), abs(Tₛ⁻), abs(T_top)))
+    return find_zero(balance, SecantMethod{FT}(Tₛ⁻ + one(FT), Tₛ⁻), CompactSolution(), tolerance).root
 end
 
 @kernel function _update_column_surface_temperature!(auxiliary, fields, grid, external_flux, relation, clock, model_fields)

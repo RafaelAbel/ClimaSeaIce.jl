@@ -1326,3 +1326,27 @@ end
         @test interior(th.fields.internal_energy) == initial_energy
     end
 end
+
+@testset "Column motion across several layers" begin
+    for FT in (Float32, Float64), (previous, current) in ((0.1, 0.05), (0.05, 0.1))
+        grid = RectilinearGrid(CPU(), FT; size = 8, z = SeaIceColumnDiscretization((0, 1)), topology = (Flat, Flat, Bounded))
+        relation = FixedSalinityBrinePocketEnergyRelation(FT)
+        energy_transport = ConductiveTemperatureTransport(FT; conductivity = 0)
+        heat_boundary_conditions = (top = FluxBoundary(), bottom = FluxBoundary())
+        th = prescribed_salinity_enthalpy_thermodynamics(grid; salinity_profile = 0,
+            relation, energy_transport, heat_boundary_conditions)
+        initial = FT[-2, -20, -20, -20, -20, -20, -20, -20]
+        expected = previous > current ? fill(FT(-20), 8) : FT[-2, -2, -2, -2, -11, -20, -20, -20]
+        set!(th; temperature = reshape(initial, 1, 1, 8))
+        grid.z.hsⁿ .= 0; grid.z.hs⁻ .= 0
+        grid.z.hbⁿ .= FT(-current); grid.z.hb⁻ .= FT(-previous)
+        column_energy_time_step!(th, (top = FT(0), bottom = FT(0)), Clock(time = FT(0)), NamedTuple(), ConstantField(FT(0)), FT(5400))
+        @test vec(Array(interior(th.fields.temperature))) ≈ expected
+
+        salt = evolving_salinity_mushy_thermodynamics(grid; relation, energy_transport,
+            salinity_transport = NoSalinityTransport(), heat_boundary_conditions)
+        set!(salt; bulk_salinity = reshape(-initial, 1, 1, 8), temperature = FT(-5))
+        column_salinity_time_step!(salt, FT(5400))
+        @test vec(Array(interior(salt.fields.bulk_salinity))) ≈ -expected
+    end
+end

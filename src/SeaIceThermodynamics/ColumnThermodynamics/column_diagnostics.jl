@@ -148,18 +148,31 @@ const ColumnDirichletBoundary = Union{PrescribedTemperature, IceWaterThermalEqui
     return internal_energy(relation, Tᵇ, @inbounds(fields.bulk_salinity[i, j, 1]))
 end
 
-# Upwind value swept across face k; boundary faces sweep in the bottom (top) boundary value when the ice grows.
+# Integrate the piecewise-constant old profile across every layer swept by face k.
 @inline function moving_face_displacement_flux(i, j, k, grid, c, fields, relation, bottom_boundary)
     Nz = size(grid, 3)
     δz = column_face_displacement(i, j, k, grid)
+    iszero(δz) && return zero(δz)
+    stretch = σ⁻(i, j, k, grid, Center(), Center(), Face())
+    old_face = stretch * rnode(i, j, k, grid, Center(), Center(), Face())
+    lower, upper = minmax(old_face, old_face + δz)
+    integral = zero(δz)
 
     @inbounds begin
+        for cell in 1:Nz
+            bottom = stretch * rnode(i, j, cell, grid, Center(), Center(), Face())
+            top = stretch * rnode(i, j, cell+1, grid, Center(), Center(), Face())
+            overlap = max(min(upper, top) - max(lower, bottom), zero(δz))
+            integral += overlap * c[i, j, cell]
+        end
+        bottom = stretch * rnode(i, j, 1, grid, Center(), Center(), Face())
+        top = stretch * rnode(i, j, Nz+1, grid, Center(), Center(), Face())
         cᵇ = moving_bottom_boundary_value(bottom_boundary, i, j, grid, fields, relation, c[i, j, 1])
-        interior_value = ifelse(δz >= 0, c[i, j, min(k, Nz)], c[i, j, max(k-1, 1)])
-        value = ifelse((k == 1) & (δz < 0), cᵇ, interior_value)
+        integral += max(min(upper, bottom) - lower, zero(δz)) * cᵇ
+        integral += max(upper - max(lower, top), zero(δz)) * c[i, j, Nz]
     end
 
-    return δz * value
+    return ifelse(δz > 0, integral, -integral)
 end
 
 # Affine part of κ ∂z[T(E*, S) + (∂T/∂E)* (E - E*)].

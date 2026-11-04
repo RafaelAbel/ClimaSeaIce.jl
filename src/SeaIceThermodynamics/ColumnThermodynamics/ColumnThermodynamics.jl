@@ -2,6 +2,7 @@ using Oceananigans: prognostic_state, prognostic_fields, restore_prognostic_stat
 using KernelAbstractions: @kernel, @index
 using RootSolvers: SecantMethod, find_zero, CompactSolution, SolutionTolerance
 using Oceananigans.Architectures: architecture
+using Oceananigans.AbstractOperations: KernelFunctionOperation
 using Oceananigans.Fields: AbstractField, interior, set!
 using Oceananigans.Grids: ZDirection, rnode, znode
 using Oceananigans.Operators: Δzᶜᶜᶜ, Δzᶜᶜᶠ, σ⁻, σⁿ

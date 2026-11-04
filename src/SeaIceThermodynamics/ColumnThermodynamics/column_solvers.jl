@@ -50,17 +50,15 @@ end
     end
 end
 
-@kernel function _column_energy_residual!(residual, auxiliary, E, grid)
-    i, j, k = @index(Global, NTuple)
+@inline function column_energy_residual(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, rhs, E)
     Nz = size(grid, 3)
     @inbounds begin
-        lower = k > 1 ? auxiliary.lower_diagonal[i, j, k-1] * E[i, j, k-1] : zero(eltype(grid))
-        upper = k < Nz ? auxiliary.upper_diagonal[i, j, k] * E[i, j, k+1] : zero(eltype(grid))
-        diagonal = auxiliary.diagonal[i, j, k] * E[i, j, k]
-        rhs = auxiliary.energy_rhs[i, j, k]
-        roundoff = 4eps(eltype(grid)) * (abs(diagonal) + abs(lower) + abs(upper) + abs(rhs))
-        error = max(abs(diagonal + lower + upper - rhs) - roundoff, zero(rhs))
-        residual[i, j, k] = ifelse(Oceananigans.ImmersedBoundaries.immersed_cell(i, j, k, grid), zero(error), error)
+        lower = k > 1 ? lower_diagonal[i, j, k-1] * E[i, j, k-1] : zero(eltype(grid))
+        upper = k < Nz ? upper_diagonal[i, j, k] * E[i, j, k+1] : zero(eltype(grid))
+        center = diagonal[i, j, k] * E[i, j, k]
+        b = rhs[i, j, k]
+        roundoff = 4eps(eltype(grid)) * (abs(center) + abs(lower) + abs(upper) + abs(b))
+        return max(abs(center + lower + upper - b) - roundoff, zero(b))
     end
 end
 

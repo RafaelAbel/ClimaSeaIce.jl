@@ -13,14 +13,17 @@ end
 
 function column_surface_energy_solve!(top_boundary, thermodynamics::ColumnEnergyThermodynamics,
                                       external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt; max_iterations = 128)
-    grid = thermodynamics.fields.internal_energy.grid
+    fields, auxiliary = thermodynamics.fields, thermodynamics.auxiliary
+    E = fields.internal_energy
+    grid, arch = E.grid, architecture(E.grid)
     tolerance = sqrt(eps(eltype(grid)))
-    E = thermodynamics.fields.internal_energy
+    energy = interior(E)
     Nz = size(grid, 3)
 
-    E⁰ = copy(interior(E))
-    interior(thermodynamics.auxiliary.surface_start_energy) .= view(E⁰, :, :, Nz:Nz)
-    residual = similar(E⁰)
+    E⁰ = copy(energy)
+    interior(auxiliary.surface_start_energy) .= view(E⁰, :, :, Nz:Nz)
+    residual = KernelFunctionOperation{Center, Center, Center}(column_energy_residual, grid,
+        auxiliary.lower_diagonal, auxiliary.diagonal, auxiliary.upper_diagonal, auxiliary.energy_rhs, E)
     step = similar(E⁰)
     previous_defect = oftype(tolerance, Inf)
     residual_scale = zero(tolerance)
@@ -31,26 +34,23 @@ function column_surface_energy_solve!(top_boundary, thermodynamics::ColumnEnergy
         compute_column_thermodynamic_diagnostics!(thermodynamics)
         iteration == 0 && compute_column_transport_coefficients!(thermodynamics)
         if top_boundary isa MeltingConstrainedFluxBalance
-            launch!(architecture(grid), grid, :xy, _update_column_surface_temperature!, thermodynamics.auxiliary, thermodynamics.fields, grid,
+            launch!(arch, grid, :xy, _update_column_surface_temperature!, auxiliary, fields, grid,
                     external_heat_fluxes.top, thermodynamics.relation, clock, model_fields)
         end
         assemble_column_energy_system!(thermodynamics, external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt; initial_energy = E⁰)
-        launch!(architecture(grid), grid, size(grid), _column_energy_residual!, residual, thermodynamics.auxiliary,
-                thermodynamics.fields.internal_energy, grid)
-        defect = maximum(abs, residual)
-        iteration == 0 && (residual_scale = min(defect, maximum(abs, E⁰)))
+        defect = maximum(residual; mask = 0)
+        iteration == 0 && (residual_scale = min(defect, maximum(abs, E; mask = 0)))
         defect <= tolerance * max(one(tolerance), residual_scale) && return nothing
         if defect > previous_defect
             step_fraction /= 2
-            interior(E) .-= step_fraction .* step
-            continue
-        end
-        previous_defect = defect
-        step_fraction = one(eltype(grid))
-        if iteration < max_iterations
-            step .= interior(E)
+            energy .-= step_fraction .* step
+        else
+            previous_defect = defect
+            step_fraction = one(eltype(grid))
+            iteration == max_iterations && break
+            step .= energy
             solve_column_energy_system!(thermodynamics)
-            step .= interior(E) .- step
+            step .= energy .- step
         end
     end
     error("Column energy solve did not converge within $max_iterations iterations.")

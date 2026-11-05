@@ -88,7 +88,10 @@ const SeaIceColumnGrid = Union{SeaIceColumnUnderlyingGrid,
 @inline Operators.Δzᶜᶜᶜ(i, j, k, grid::SeaIceColumnGrid) = Operators.Δrᶜᶜᶜ(i, j, k, grid) * Operators.σⁿ(i, j, k, grid, Center(), Center(), Center())
 @inline Operators.Δzᶜᶜᶠ(i, j, k, grid::SeaIceColumnGrid) = Operators.Δrᶜᶜᶠ(i, j, k, grid) * Operators.σⁿ(i, j, k, grid, Center(), Center(), Face())
 
-@inline Grids.znode(i, j, k, grid::SeaIceColumnUnderlyingGrid, ::Center, ::Center, ℓz) = rnode(i, j, k, grid, Center(), Center(), ℓz) * Operators.σⁿ(i, j, k, grid, Center(), Center(), ℓz) + @inbounds grid.z.hbⁿ[i, j, 1]
+# Reference height above the column base, r - r_bottom.
+@inline column_reference_height(i, j, k, grid, ℓz) = rnode(i, j, k, grid, Center(), Center(), ℓz) - rnode(i, j, 1, grid, Center(), Center(), Face())
+
+@inline Grids.znode(i, j, k, grid::SeaIceColumnUnderlyingGrid, ::Center, ::Center, ℓz) = column_reference_height(i, j, k, grid, ℓz) * Operators.σⁿ(i, j, k, grid, Center(), Center(), ℓz) + @inbounds grid.z.hbⁿ[i, j, 1]
 
 # Columns at rest: surface at z = 0, base at z = -ice_thickness.
 @kernel function _initialize_column_interfaces!(z, ice_thickness)

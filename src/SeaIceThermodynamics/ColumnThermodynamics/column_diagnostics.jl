@@ -116,13 +116,13 @@ end
 
 @inline previous_to_current_column_metric_ratio(i, j, k, grid::SeaIceColumnGrid) = previous_column_height(grid, i, j) / column_height(grid, i, j)
 
-# Swept-face displacement: base motion plus the thickness-stretch term (σⁿ - σ⁻) r.
+# Swept-face displacement: base motion plus the thickness-stretch term (σⁿ - σ⁻) (r - r_bottom).
 @inline function column_face_displacement(i, j, k, grid::SeaIceColumnGrid)
     z = sea_ice_discretization(grid)
     δbase = @inbounds z.hbⁿ[i, j, 1] - z.hb⁻[i, j, 1]
     σᶜᶜⁿ = σⁿ(i, j, k, grid, Center(), Center(), Face())
     σᶜᶜ⁻ = σ⁻(i, j, k, grid, Center(), Center(), Face())
-    return δbase + (σᶜᶜⁿ - σᶜᶜ⁻) * rnode(i, j, k, grid, Center(), Center(), Face())
+    return δbase + (σᶜᶜⁿ - σᶜᶜ⁻) * column_reference_height(i, j, k, grid, Face())
 end
 
 const ColumnDirichletBoundary = Union{PrescribedTemperature, IceWaterThermalEquilibrium}

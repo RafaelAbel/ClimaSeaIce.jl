@@ -1328,8 +1328,8 @@ end
 end
 
 @testset "Column motion across several layers" begin
-    for FT in (Float32, Float64), (previous, current) in ((0.1, 0.05), (0.05, 0.1))
-        grid = RectilinearGrid(CPU(), FT; size = 8, z = SeaIceColumnDiscretization((0, 1)), topology = (Flat, Flat, Bounded))
+    for FT in (Float32, Float64), (previous, current) in ((0.1, 0.05), (0.05, 0.1)), faces in ((0, 1), (10, 11))
+        grid = RectilinearGrid(CPU(), FT; size = 8, z = SeaIceColumnDiscretization(faces), topology = (Flat, Flat, Bounded))
         relation = FixedSalinityBrinePocketEnergyRelation(FT)
         energy_transport = ConductiveTemperatureTransport(FT; conductivity = 0)
         heat_boundary_conditions = (top = FluxBoundary(), bottom = FluxBoundary())
@@ -1342,6 +1342,7 @@ end
         grid.z.hbⁿ .= FT(-current); grid.z.hb⁻ .= FT(-previous)
         column_energy_time_step!(th, (top = FT(0), bottom = FT(0)), Clock(time = FT(0)), NamedTuple(), ConstantField(FT(0)), FT(5400))
         @test vec(Array(interior(th.fields.temperature))) ≈ expected
+        @test Oceananigans.Grids.znode(1, 1, 1, grid, Center(), Center(), Face()) ≈ FT(-current)
 
         salt = evolving_salinity_mushy_thermodynamics(grid; relation, energy_transport,
             salinity_transport = NoSalinityTransport(), heat_boundary_conditions)

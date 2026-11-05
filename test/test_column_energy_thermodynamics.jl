@@ -53,6 +53,7 @@ using ClimaSeaIce.SeaIceThermodynamics: itd_factor
 using Adapt
 using Oceananigans
 using Oceananigans.TimeSteppers: Clock, time_step!
+using ClimaSeaIce: PhaseTransitions
 using Oceananigans.Fields: interior, set!, ConstantField
 using Oceananigans.AbstractOperations: KernelFunctionOperation
 using Oceananigans.Operators: Δzᶜᶜᶜ
@@ -1869,5 +1870,105 @@ end
         @test isapprox(first(interior(ice.auxiliary.surface_temperature)), Tb; atol = 1e-12)
         @test isapprox(snow_heat, Qsnow; atol = 1e-6)
         @test isapprox(917 * ClimaSeaIce.SeaIceThermodynamics.latent_heat(relation.phase_transitions, Tb) * (0.04 - V) / Δt + snow_heat, 200; atol = 1e-6)
+    end
+end
+
+@testset "Steady linear temperature with saline enthalpy" begin
+    for FT in (Float32, Float64), salinity in (FT(4), FixedDrainedIceSalinityProfile(FT))
+        grid = RectilinearGrid(CPU(), FT; size = 8,
+                               z = SeaIceColumnDiscretization((0, 1)),
+                               topology = (Flat, Flat, Bounded))
+        th = prescribed_salinity_enthalpy_thermodynamics(grid;
+            relation = FixedSalinityBrinePocketEnergyRelation(FT),
+            salinity_profile = salinity,
+            energy_transport = ConductiveTemperatureTransport(conductivity = FT(2)),
+            heat_boundary_conditions = (bottom = PrescribedTemperature(FT(-3)),
+                                        top = PrescribedTemperature(FT(-0.3))))
+        set!(th; bulk_salinity = salinity, temperature = z -> -3 + 2.7z)
+        initial_temperature = copy(interior(th.fields.temperature))
+        column_step!(th, insulating_fluxes(), FT(100000))
+        drift = maximum(abs, interior(th.fields.temperature) .- initial_temperature)
+        @test drift <= 100eps(FT) * maximum(abs, initial_temperature)
+    end
+end
+
+@testset "Nonlinear column cooling and warming" begin
+    for FT in (Float32, Float64), h in FT[.05, .1, 1], initial_temperature in FT[-.22, -1.8, -5, -10],
+        air_temperature in FT[-40, -2], derivative in FT[20, 100], salinity in (FT(4), FixedDrainedIceSalinityProfile(FT)),
+        conductivity in (FT(2), MaykutUntersteinerConductivity(FT)), boundary in (FluxBoundary(), MeltingConstrainedFluxBalance())
+        Δt, basal_temperature = FT(5400), FT(-1.8)
+        grid = RectilinearGrid(CPU(), FT; size = 8,
+                               z = SeaIceColumnDiscretization((0, h)), topology = (Flat, Flat, Bounded))
+        salinity_profile = salinity isa Number ? salinity : (z -> salinity_at_normalized_height(salinity, z/h))
+        phase = PhaseTransitions(FT; density = 900, heat_capacity = 2100)
+        th = prescribed_salinity_enthalpy_thermodynamics(grid;
+            relation = FixedSalinityBrinePocketEnergyRelation(FT; phase_transitions = phase),
+            salinity_profile,
+            energy_transport = ConductiveTemperatureTransport(FT; conductivity),
+            heat_boundary_conditions = (top = boundary, bottom = PrescribedTemperature(basal_temperature)))
+        set!(th; temperature = initial_temperature)
+        initial_energy = vec(Array(interior(th.fields.internal_energy)))
+        salinities = vec(Array(interior(th.fields.bulk_salinity)))
+        flux = FluxFunction((i, j, grid, T, clock, fields, p) -> p.derivative * (T - p.air_temperature);
+                            parameters = (derivative = derivative, air_temperature = air_temperature))
+        column_step!(th, (top = flux, bottom = FT(0)), Δt)
+        temperatures = vec(Array(interior(th.fields.temperature)))
+        energy = vec(Array(interior(th.fields.internal_energy)))
+        kappa = ice_thermal_conductivity.(Ref(conductivity), initial_temperature, salinities)
+        face_conductivity = 2 ./ (1 ./ kappa[1:end-1] .+ 1 ./ kappa[2:end])
+        Δz = h / length(temperatures)
+        C = 2last(kappa) / Δz
+        surface_temperature = boundary isa FluxBoundary ? last(temperatures) : (C * last(temperatures) + derivative * air_temperature) / (C + derivative)
+        fluxes = vcat(2first(kappa) * (first(temperatures) - basal_temperature) / Δz,
+                      face_conductivity .* diff(temperatures) ./ Δz, -derivative * (surface_temperature - air_temperature))
+        storage = Δz .* (energy .- initial_energy)
+        scale = max(1, maximum(abs, storage), Δt * maximum(abs, fluxes))
+        residual = maximum(abs, storage .- Δt .* diff(fluxes)) / scale
+        @test minimum(temperatures) >= min(initial_temperature, air_temperature, basal_temperature) - 8eps(FT) * abs(air_temperature)
+        @test maximum(temperatures) <= max(initial_temperature, air_temperature, basal_temperature) + 8eps(FT) * abs(air_temperature)
+        @test residual <= 8sqrt(eps(FT))
+    end
+end
+
+@testset "Energy conservation with zero conductivity and evolving salinity" begin
+    for FT in (Float32, Float64)
+        grid = RectilinearGrid(CPU(), FT; size = 8, z = SeaIceColumnDiscretization((0, 1)),
+                               topology = (Flat, Flat, Bounded))
+        th = evolving_salinity_mushy_thermodynamics(grid;
+            relation = QuadraticLiquidusEnergyRelation(FT),
+            energy_transport = ConductiveTemperatureTransport(FT; conductivity = 0),
+            salinity_transport = BulkSalinityDiffusion(FT; diffusivity = 1e-5),
+            heat_boundary_conditions = (top = MeltingConstrainedFluxBalance(), bottom = FluxBoundary()))
+        set!(th; bulk_salinity = z -> 4 + z, temperature = -5)
+        initial_energy = copy(interior(th.fields.internal_energy))
+        for _ in 1:3
+            column_step!(th, insulating_fluxes(), FT(10))
+        end
+        @test interior(th.fields.internal_energy) == initial_energy
+    end
+end
+
+@testset "Column motion across several layers" begin
+    for FT in (Float32, Float64), (previous, current) in ((0.1, 0.05), (0.05, 0.1)), faces in ((0, 1), (10, 11))
+        grid = RectilinearGrid(CPU(), FT; size = 8, z = SeaIceColumnDiscretization(faces), topology = (Flat, Flat, Bounded))
+        relation = FixedSalinityBrinePocketEnergyRelation(FT)
+        energy_transport = ConductiveTemperatureTransport(FT; conductivity = 0)
+        heat_boundary_conditions = (top = FluxBoundary(), bottom = FluxBoundary())
+        th = prescribed_salinity_enthalpy_thermodynamics(grid; salinity_profile = 0,
+            relation, energy_transport, heat_boundary_conditions)
+        initial = FT[-2, -20, -20, -20, -20, -20, -20, -20]
+        expected = previous > current ? fill(FT(-20), 8) : FT[-2, -2, -2, -2, -11, -20, -20, -20]
+        set!(th; temperature = reshape(initial, 1, 1, 8))
+        grid.z.hsⁿ .= 0; grid.z.hs⁻ .= 0
+        grid.z.hbⁿ .= FT(-current); grid.z.hb⁻ .= FT(-previous)
+        column_energy_time_step!(th, (top = FT(0), bottom = FT(0)), Clock(time = FT(0)), NamedTuple(), ConstantField(FT(0)), FT(5400))
+        @test vec(Array(interior(th.fields.temperature))) ≈ expected
+        @test Oceananigans.Grids.znode(1, 1, 1, grid, Center(), Center(), Face()) ≈ FT(-current)
+
+        salt = evolving_salinity_mushy_thermodynamics(grid; relation, energy_transport,
+            salinity_transport = NoSalinityTransport(), heat_boundary_conditions)
+        set!(salt; bulk_salinity = reshape(-initial, 1, 1, 8), temperature = FT(-5))
+        column_salinity_time_step!(salt, FT(5400))
+        @test vec(Array(interior(salt.fields.bulk_salinity))) ≈ -expected
     end
 end

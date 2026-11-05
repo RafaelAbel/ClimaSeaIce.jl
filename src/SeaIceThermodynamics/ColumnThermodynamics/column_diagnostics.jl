@@ -54,7 +54,7 @@ function compute_column_thermodynamic_diagnostics!(thermodynamics::ColumnEnergyT
 end
 
 # Boundary faces (k = 1 and k = Nz + 1) take the adjacent cell values.
-@inline function store_face_transport_coefficients!(auxiliary, i, j, k, grid, fields, κT, κE)
+@inline function store_face_transport_coefficients!(auxiliary, i, j, k, grid, fields, κT)
     Nz = size(grid, 3)
     kᵇ = max(k - 1, 1)
     kᵗ = min(k, Nz)
@@ -62,29 +62,21 @@ end
     @inbounds begin
         T = fields.temperature
         S = fields.bulk_salinity
-        TE = (fields.temperature_energy_derivative[i, j, kᵇ] + fields.temperature_energy_derivative[i, j, kᵗ]) / 2
-        TS = (fields.temperature_salinity_derivative[i, j, kᵇ] + fields.temperature_salinity_derivative[i, j, kᵗ]) / 2
-
-        K = ifelse(kᵇ == kᵗ, ice_thermal_conductivity(κT, T[i, j, kᵗ], S[i, j, kᵗ]),
-                   face_thermal_conductivity(κT, T[i, j, kᵇ], S[i, j, kᵇ], Δzᶜᶜᶜ(i, j, kᵇ, grid), T[i, j, kᵗ], S[i, j, kᵗ], Δzᶜᶜᶜ(i, j, kᵗ, grid)))
-
-        auxiliary.thermal_conductivity[i, j, k] = K
-        auxiliary.effective_energy_diffusivity[i, j, k] = K * TE + κE
-        auxiliary.salinity_coupling_diffusivity[i, j, k] = K * TS
+        auxiliary.thermal_conductivity[i, j, k] = ifelse(kᵇ == kᵗ, ice_thermal_conductivity(κT, T[i, j, kᵗ], S[i, j, kᵗ]),
+            face_thermal_conductivity(κT, T[i, j, kᵇ], S[i, j, kᵇ], Δzᶜᶜᶜ(i, j, kᵇ, grid), T[i, j, kᵗ], S[i, j, kᵗ], Δzᶜᶜᶜ(i, j, kᵗ, grid)))
     end
 end
 
 @kernel function _compute_column_transport_coefficients!(auxiliary, fields, grid, energy_transport)
     i, j, k = @index(Global, NTuple)
     κT = thermal_conductivity(energy_transport)
-    κE = energy_diffusivity(energy_transport)
-    store_face_transport_coefficients!(auxiliary, i, j, k, grid, fields, κT, κE)
+    store_face_transport_coefficients!(auxiliary, i, j, k, grid, fields, κT)
 end
 
 """
     compute_column_transport_coefficients!(thermodynamics)
 
-Compute the face-centered energy transport coefficients of the semi-implicit energy solve.
+Compute the face thermal conductivity of the semi-implicit energy solve.
 """
 function compute_column_transport_coefficients!(thermodynamics::ColumnEnergyThermodynamics)
     grid = thermodynamics.fields.internal_energy.grid
@@ -170,8 +162,6 @@ end
 
     return ifelse(δz > 0, integral, -integral)
 end
-
-@inline salinity_coupling_flux(i, j, k, grid, C, S) = @inbounds(C[i, j, k] * (S[i, j, k] - S[i, j, k-1]) / Δzᶜᶜᶠ(i, j, k, grid))
 
 @inline column_boundary_temperature_conductance(i, j, kf, kc, grid, auxiliary) = @inbounds 2 * auxiliary.thermal_conductivity[i, j, kf] / Δzᶜᶜᶜ(i, j, kc, grid)
 

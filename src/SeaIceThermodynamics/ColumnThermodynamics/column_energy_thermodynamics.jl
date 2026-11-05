@@ -8,10 +8,8 @@ struct ColumnThermodynamicFields{E, S, T, LF, BS, TE, TS}
     temperature_salinity_derivative :: TS
 end
 
-struct ColumnAuxiliaryFields{K, DE, CS, I, RHS, A, B, C, ST, BF, SF}
+struct ColumnAuxiliaryFields{K, I, RHS, A, B, C, ST, BF, SF}
     thermal_conductivity :: K
-    effective_energy_diffusivity :: DE
-    salinity_coupling_diffusivity :: CS
     shortwave_flux :: I
     energy_rhs :: RHS
     lower_diagonal :: A
@@ -66,7 +64,7 @@ Adapt.@adapt_structure ColumnEnergyThermodynamics
 column_thermodynamic_fields(grid) = ColumnThermodynamicFields((Field{Center, Center, Center}(grid) for _ in 1:7)...)
 
 function column_auxiliary_fields(grid)
-    face_fields = (Field{Center, Center, Face}(grid) for _ in 1:4)
+    face_fields = (Field{Center, Center, Face}(grid) for _ in 1:2)
     center_fields = (Field{Center, Center, Center}(grid) for _ in 1:4)
     surface_fields = (Field{Center, Center, Nothing}(grid) for _ in 1:2)
     surface_fluxes = (heat = Field{Center, Center, Nothing}(grid),

@@ -1,5 +1,6 @@
 using Oceananigans: prognostic_state, prognostic_fields, restore_prognostic_state!
 using KernelAbstractions: @kernel, @index
+using Oceananigans.AbstractOperations: KernelFunctionOperation
 using Oceananigans.Architectures: architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Oceananigans.Fields: interior, set!

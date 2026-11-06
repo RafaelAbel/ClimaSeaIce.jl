@@ -79,19 +79,36 @@ function assemble_column_energy_system!(thermodynamics::ColumnEnergyThermodynami
     return nothing
 end
 
-# Normalized defect of one row of the assembled system: at most 1 when the row has converged.
-@inline function column_energy_residual(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, rhs, E, initial_energy, relative_tolerance)
+@inline function column_energy_row_terms(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, E)
     Nz = size(grid, 3)
     @inbounds begin
         lower = ifelse(k > 1, lower_diagonal[i, j, max(1, k-1)] * E[i, j, max(1, k-1)], zero(eltype(grid)))
         upper = ifelse(k < Nz, upper_diagonal[i, j, k] * E[i, j, min(Nz, k+1)], zero(eltype(grid)))
         center = diagonal[i, j, k] * E[i, j, k]
+    end
+    return lower, center, upper
+end
+
+# The size of one row's terms times a few machine epsilons: its residual cannot reliably fall below this.
+@inline column_energy_roundoff(grid, lower, center, upper, b) = 4eps(eltype(grid)) * (abs(center) + abs(lower) + abs(upper) + abs(b))
+
+# Normalized defect of one row of the assembled system: at most 1 when the row has converged.
+@inline function column_energy_residual(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, rhs, E, initial_energy, relative_tolerance)
+    lower, center, upper = column_energy_row_terms(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, E)
+    @inbounds begin
         b = rhs[i, j, k]
         scale = max(1, abs(E[i, j, k] - initial_energy[i, j, k]))
-        tolerance = max(relative_tolerance * scale,
-                        4eps(eltype(grid)) * (abs(center) + abs(lower) + abs(upper) + abs(b)))
-        return abs(center + lower + upper - b) / tolerance
     end
+    tolerance = max(relative_tolerance * scale, column_energy_roundoff(grid, lower, center, upper, b))
+    return abs(center + lower + upper - b) / tolerance
+end
+
+# Residual of one row above round-off, in J m⁻³. Backtracking compares this rather than the defect above: the defect's tolerance
+# depends on |E - E⁰|, which shrinks as a good step moves E back towards E⁰, so the defect can rise while the residual falls.
+@inline function column_energy_excess_residual(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, rhs, E)
+    lower, center, upper = column_energy_row_terms(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, E)
+    @inbounds b = rhs[i, j, k]
+    return max(abs(center + lower + upper - b) - column_energy_roundoff(grid, lower, center, upper, b), zero(b))
 end
 
 """

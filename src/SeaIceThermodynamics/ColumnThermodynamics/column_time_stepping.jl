@@ -41,9 +41,11 @@ function column_surface_energy_solve!(top_boundary, thermodynamics::ColumnEnergy
     step = similar(E⁰)
     residual = KernelFunctionOperation{Center, Center, Center}(column_energy_residual, grid,
         auxiliary.lower_diagonal, auxiliary.diagonal, auxiliary.upper_diagonal, auxiliary.energy_rhs, E, E⁰, options.relative_tolerance)
-    previous_defect = oftype(options.relative_tolerance, Inf)
+    excess_residual = KernelFunctionOperation{Center, Center, Center}(column_energy_excess_residual, grid,
+        auxiliary.lower_diagonal, auxiliary.diagonal, auxiliary.upper_diagonal, auxiliary.energy_rhs, E)
+    previous_excess = oftype(options.relative_tolerance, Inf)
     step_fraction = one(eltype(grid))
-    energy_residual = surface_residual = previous_defect
+    energy_residual = surface_residual = previous_excess
 
     compute_column_thermodynamic_diagnostics!(thermodynamics)
     compute_column_transport_coefficients!(thermodynamics)
@@ -58,12 +60,14 @@ function column_surface_energy_solve!(top_boundary, thermodynamics::ColumnEnergy
         defect = max(energy_residual, surface_residual)
         defect <= 1 && return nothing
 
-        if defect > previous_defect
-            # Halve the step that raised the defect. Fractions accumulate: 1 - 1/2 - 1/4 - ...
+        excess = maximum(excess_residual; mask = 0)
+
+        if excess > previous_excess
+            # Halve the step that raised the residual. Fractions accumulate: 1 - 1/2 - 1/4 - ...
             step_fraction /= 2
             parent(E) .-= step_fraction .* parent(step)
         else
-            previous_defect = defect
+            previous_excess = excess
             step_fraction = one(eltype(grid))
             parent(step) .= parent(E)
             solve_column_energy_system!(thermodynamics)

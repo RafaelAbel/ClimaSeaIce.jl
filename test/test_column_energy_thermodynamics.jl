@@ -1830,6 +1830,46 @@ end
     @test_throws ErrorException column_step!(ice, (top = Q, bottom = 0), 1)
 end
 
+@testset "Backtracking keeps a step that lowers the residual" begin
+    # Column (292, 47) at iteration 905 of a global run, where the solve failed. Along its second step the residual falls at
+    # every fraction, but the normalized defect rises, because its tolerance shrinks with |E - E⁰|.
+    E⁰ = [25723765.02132106, 27658415.953812763, 29652550.64854156, 31579968.399667785,
+          32999238.126846775, 32730876.60558527, 28118057.369986087, 14615218.968743838]
+    h, hs, Sₒ, Δt = 0.050359075912101384, 0.0035281146699675274, 34.157656051293074, 5400
+
+    grid = RectilinearGrid(Float64; size = (1, 1, 8), x = (0, 1), y = (0, 1),
+                           z = SeaIceColumnDiscretization((0, 1)),
+                           topology = (Bounded, Bounded, Bounded))
+    relation = FixedSalinityBrinePocketEnergyRelation(Float64)
+    ice = prescribed_salinity_enthalpy_thermodynamics(grid; relation,
+        salinity_profile = FixedDrainedIceSalinityProfile(Float64),
+        energy_transport = ConductiveTemperatureTransport(conductivity = MaykutUntersteinerConductivity(Float64)),
+        heat_boundary_conditions = (top = MeltingConstrainedFluxBalance(), bottom = IceWaterThermalEquilibrium(Sₒ)))
+    snow = snow_slab_thermodynamics(grid)
+    atmosphere = LinearizedSurfaceFlux(-60.93563649479057, -0.01198902224905396, 40.5078141969176)
+    model = SeaIceModel(grid; ice_thermodynamics = ice, snow_thermodynamics = snow,
+                        top_heat_flux = atmosphere, bottom_heat_flux = 0)
+    set!(model; h, hs, ℵ = 1)
+    set!(ice; internal_energy = reshape(E⁰, 1, 1, 8))
+    surface = (thickness = model.snow_thickness, density = model.snow_density,
+               conductivity = 0.31, latent_heat = relation.phase_transitions.reference_latent_heat,
+               itd_shape = nothing, temperature = snow.top_surface_temperature)
+
+    column_energy_time_step!(ice, model.external_heat_fluxes, model.clock, fields(model),
+                             model.ice_consolidation_thickness, Δt; snow = surface)
+
+    E = vec(interior(ice.fields.internal_energy))
+    T = vec(interior(ice.fields.temperature))
+    zᵇ = -(900h + 330hs) / relation.phase_transitions.liquid_density
+    Tᵇ = melting_temperature(relation.phase_transitions.liquidus, Sₒ, zᵇ)
+    Δz = h / 8
+    Qᵇ = 2 * first(interior(ice.auxiliary.thermal_conductivity)) / Δz * (first(T) - Tᵇ)
+    Qᶜ = first(interior(ice.auxiliary.surface_fluxes.heat))
+
+    @test abs(Δz * sum(E .- E⁰) / Δt + Qᶜ + Qᵇ) < 1e-3
+    @test all(T .< 0)
+end
+
 @testset "Prognostic salinity and surface heat close at the same new state" begin
     grid = RectilinearGrid(size = 4, z = SeaIceColumnDiscretization((0, 1)), topology = (Flat, Flat, Bounded))
     ice = evolving_salinity_mushy_thermodynamics(grid;

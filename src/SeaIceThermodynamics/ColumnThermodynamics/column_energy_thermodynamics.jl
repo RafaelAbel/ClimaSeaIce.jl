@@ -31,8 +31,8 @@ end
 
 One-dimensional column thermodynamics with prognostic internal energy, prescribed or prognostic bulk salinity, and
 diagnostic temperature, liquid fraction, brine salinity, and thermodynamic derivatives.
-`nonlinear_solver` specifies the maximum iteration count and relative energy-change tolerance of the coupled
-implicit energy and surface solve, which backtracks any step that raises the defect.
+`nonlinear_solver` specifies the maximum iteration count, relative energy-change tolerance, and relaxation
+of the coupled implicit energy and surface solve.
 """
 struct ColumnEnergyThermodynamics{R, SC, ET, ST, SW, BC, F, A, SOL}
     relation :: R
@@ -122,8 +122,9 @@ function ColumnEnergyThermodynamics(grid;
                                     heat_boundary_conditions = default_column_heat_boundary_conditions(),
                                     fields = column_thermodynamic_fields(grid),
                                     auxiliary = column_auxiliary_fields(grid),
-                                    nonlinear_solver = (maximum_iterations = 128,
-                                                        relative_tolerance = sqrt(eps(eltype(grid)))),
+                                    nonlinear_solver = (maximum_iterations = 100,
+                                                        relative_tolerance = max(eltype(grid)(1e-8), 4eps(eltype(grid))),
+                                                        relaxation = eltype(grid)(1//2)),
                                     solvers = column_solvers(grid, auxiliary, nonlinear_solver))
     initialize_salinity!(fields, salinity_closure)
     return ColumnEnergyThermodynamics(relation, salinity_closure, energy_transport, salinity_transport, shortwave_absorption,

@@ -33,44 +33,34 @@ end
 
 function column_surface_energy_solve!(top_boundary, thermodynamics::ColumnEnergyThermodynamics,
                                       external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt; snow = nothing)
-    fields, auxiliary = thermodynamics.fields, thermodynamics.auxiliary
+    grid = thermodynamics.fields.internal_energy.grid
+    auxiliary = thermodynamics.auxiliary
     options = thermodynamics.solvers.nonlinear_solver
-    E = fields.internal_energy
-    grid = E.grid
-    E⁰ = copy(E.data)
-    step = similar(E⁰)
-    residual = KernelFunctionOperation{Center, Center, Center}(column_energy_residual, grid,
-        auxiliary.lower_diagonal, auxiliary.diagonal, auxiliary.upper_diagonal, auxiliary.energy_rhs, E, E⁰, options.relative_tolerance)
-    previous_defect = oftype(options.relative_tolerance, Inf)
-    step_fraction = one(eltype(grid))
-    energy_residual = surface_residual = previous_defect
+    E = thermodynamics.fields.internal_energy.data
+    E⁰ = copy(E)
+    E⁻ = similar(E)
+    energy_residual = Inf
+    surface_residual = Inf
 
-    compute_column_thermodynamic_diagnostics!(thermodynamics)
-    compute_column_transport_coefficients!(thermodynamics)
-
-    # Re-linearize about the current state while holding the start-of-step storage and conductivity fixed.
-    for iteration in 0:options.maximum_iterations
+    for iteration in 1:options.maximum_iterations
+        parent(E⁻) .= parent(E)
+        compute_column_thermodynamic_diagnostics!(thermodynamics)
+        compute_column_transport_coefficients!(thermodynamics)
         update_column_surface_fluxes!(top_boundary, thermodynamics, external_heat_fluxes.top, clock, model_fields, Δt; snow, consolidation_thickness)
         assemble_column_energy_system!(thermodynamics, external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt; initial_energy = E⁰)
-        energy_residual = maximum(residual; mask = 0)
-        surface_residual = maximum(abs, auxiliary.surface_fluxes.residual)
-        isfinite(energy_residual) && isfinite(surface_residual) || error("Column energy/surface solve produced a nonfinite residual.")
-        defect = max(energy_residual, surface_residual)
-        defect <= 1 && return nothing
-
-        if defect > previous_defect
-            # Halve the step that raised the defect. Fractions accumulate: 1 - 1/2 - 1/4 - ...
-            step_fraction /= 2
-            parent(E) .-= step_fraction .* parent(step)
-        else
-            previous_defect = defect
-            step_fraction = one(eltype(grid))
-            parent(step) .= parent(E)
-            solve_column_energy_system!(thermodynamics)
-            parent(step) .= parent(E) .- parent(step)
-        end
+        solve_column_energy_system!(thermodynamics)
 
         compute_column_thermodynamic_diagnostics!(thermodynamics)
+        compute_column_transport_coefficients!(thermodynamics)
+        update_column_surface_fluxes!(top_boundary, thermodynamics, external_heat_fluxes.top, clock, model_fields, Δt; snow, consolidation_thickness)
+        assemble_column_energy_system!(thermodynamics, external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt; initial_energy = E⁰)
+        launch!(architecture(grid), grid, :xyz, _column_energy_residual!, auxiliary,
+                thermodynamics.fields.internal_energy, E⁰, grid, options.relative_tolerance)
+        energy_residual = maximum(abs, interior(auxiliary.energy_rhs))
+        surface_residual = maximum(abs, interior(auxiliary.surface_fluxes.residual))
+        isfinite(energy_residual) && isfinite(surface_residual) || error("Column energy/surface solve produced a nonfinite residual.")
+        energy_residual <= 1 && surface_residual <= 1 && return nothing
+        parent(E) .= parent(E⁻) .+ options.relaxation .* (parent(E) .- parent(E⁻))
     end
 
     error("Column energy/surface solve did not converge within $(options.maximum_iterations) iterations (energy residual $energy_residual, normalized surface residual $surface_residual).")

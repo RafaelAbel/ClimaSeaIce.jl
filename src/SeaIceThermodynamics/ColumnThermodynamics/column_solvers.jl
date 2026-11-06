@@ -79,18 +79,19 @@ function assemble_column_energy_system!(thermodynamics::ColumnEnergyThermodynami
     return nothing
 end
 
-# Normalized defect of one row of the assembled system: at most 1 when the row has converged.
-@inline function column_energy_residual(i, j, k, grid, lower_diagonal, diagonal, upper_diagonal, rhs, E, initial_energy, relative_tolerance)
+@kernel function _column_energy_residual!(auxiliary, E, initial_energy, grid, relative_tolerance)
+    i, j, k = @index(Global, NTuple)
     Nz = size(grid, 3)
     @inbounds begin
-        lower = ifelse(k > 1, lower_diagonal[i, j, max(1, k-1)] * E[i, j, max(1, k-1)], zero(eltype(grid)))
-        upper = ifelse(k < Nz, upper_diagonal[i, j, k] * E[i, j, min(Nz, k+1)], zero(eltype(grid)))
-        center = diagonal[i, j, k] * E[i, j, k]
-        b = rhs[i, j, k]
+        lower = ifelse(k > 1, auxiliary.lower_diagonal[i, j, max(1, k-1)] * E[i, j, max(1, k-1)], zero(eltype(grid)))
+        upper = ifelse(k < Nz, auxiliary.upper_diagonal[i, j, k] * E[i, j, min(Nz, k+1)], zero(eltype(grid)))
+        diagonal = auxiliary.diagonal[i, j, k] * E[i, j, k]
+        rhs = auxiliary.energy_rhs[i, j, k]
         scale = max(1, abs(E[i, j, k] - initial_energy[i, j, k]))
         tolerance = max(relative_tolerance * scale,
-                        4eps(eltype(grid)) * (abs(center) + abs(lower) + abs(upper) + abs(b)))
-        return abs(center + lower + upper - b) / tolerance
+                        4eps(eltype(grid)) * (abs(diagonal) + abs(lower) + abs(upper) + abs(rhs)))
+        residual = abs(diagonal + lower + upper - rhs) / tolerance
+        auxiliary.energy_rhs[i, j, k] = ifelse(Oceananigans.ImmersedBoundaries.immersed_cell(i, j, k, grid), zero(residual), residual)
     end
 end
 

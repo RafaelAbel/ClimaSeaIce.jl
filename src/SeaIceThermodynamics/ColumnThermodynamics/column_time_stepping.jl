@@ -45,10 +45,11 @@ function column_surface_energy_solve!(top_boundary, thermodynamics::ColumnEnergy
     step_fraction = one(eltype(grid))
     energy_residual = surface_residual = previous_defect
 
+    compute_column_thermodynamic_diagnostics!(thermodynamics)
+    compute_column_transport_coefficients!(thermodynamics)
+
     # Re-linearize about the current state while holding the start-of-step storage and conductivity fixed.
     for iteration in 0:options.maximum_iterations
-        compute_column_thermodynamic_diagnostics!(thermodynamics)
-        iteration == 0 && compute_column_transport_coefficients!(thermodynamics)
         update_column_surface_fluxes!(top_boundary, thermodynamics, external_heat_fluxes.top, clock, model_fields, Δt; snow, consolidation_thickness)
         assemble_column_energy_system!(thermodynamics, external_heat_fluxes, clock, model_fields, consolidation_thickness, Δt; initial_energy = E⁰)
         energy_residual = maximum(residual; mask = 0)
@@ -64,11 +65,12 @@ function column_surface_energy_solve!(top_boundary, thermodynamics::ColumnEnergy
         else
             previous_defect = defect
             step_fraction = one(eltype(grid))
-            iteration == options.maximum_iterations && break
             parent(step) .= parent(E)
             solve_column_energy_system!(thermodynamics)
             parent(step) .= parent(E) .- parent(step)
         end
+
+        compute_column_thermodynamic_diagnostics!(thermodynamics)
     end
 
     error("Column energy/surface solve did not converge within $(options.maximum_iterations) iterations (energy residual $energy_residual, normalized surface residual $surface_residual).")

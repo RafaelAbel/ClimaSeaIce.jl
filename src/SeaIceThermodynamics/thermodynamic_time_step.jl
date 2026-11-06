@@ -6,9 +6,10 @@ using Oceananigans.Units: Time
 # No ice, no thermodynamics!
 thermodynamic_time_step!(model, ::Nothing, snow_thermodynamics, Δt) = nothing
 
-column_snow_coupling(model, th, ::Nothing) = nothing
+# Checked once, when the model is built.
+validate_snow_coupling(ice_thermodynamics, snow_thermodynamics) = nothing
 
-function column_snow_coupling(model, th, snow::SlabThermodynamics)
+function validate_snow_coupling(th::ColumnEnergyThermodynamics, snow::SlabThermodynamics)
     th.heat_boundary_conditions.top isa MeltingConstrainedFluxBalance ||
         throw(ArgumentError("Column ice with slab snow requires MeltingConstrainedFluxBalance at the ice surface"))
     snow.heat_boundary_conditions.top isa MeltingConstrainedFluxBalance ||
@@ -17,6 +18,12 @@ function column_snow_coupling(model, th, snow::SlabThermodynamics)
         throw(ArgumentError("Column ice with slab snow requires conductive slab snow"))
     snow.top_surface_temperature === th.auxiliary.surface_temperature &&
         throw(ArgumentError("Snow and ice surface temperatures must use separate fields"))
+    return nothing
+end
+
+column_snow_coupling(model, th, ::Nothing) = nothing
+
+function column_snow_coupling(model, th, snow::SlabThermodynamics)
     return (thickness = model.snow_thickness, density = model.snow_density,
             conductivity = snow.internal_heat_flux.conductivity,
             latent_heat = model.phase_transitions.reference_latent_heat,
@@ -154,17 +161,6 @@ end
 # The snow-ice interface temperature Tsi is computed analytically from the
 # resistance ratio and handed to `ice_melt_freeze_tendency` as an argument,
 # so the ice's surface solve is not invoked.
-# A prescribed snow surface temperature is left as it is.
-@inline update_snow_surface_temperature!(i, j, grid, ::PrescribedTemperature, args...) = nothing
-
-# Consolidated ice solves the surface balance, capped at melting. Thinner ice takes the basal temperature.
-@inline function update_snow_surface_temperature!(i, j, grid, bc, Tu, consolidated_ice, Tb, Tm, Qic, Qu, clock, model_fields)
-    @inbounds Tu⁻ = Tu[i, j, 1]
-    Tuˢ = top_surface_temperature(i, j, grid, bc, Tu⁻, Qic, Qu, clock, model_fields)
-    @inbounds Tu[i, j, 1] = ifelse(consolidated_ice, min(Tuˢ, Tm), Tb)
-    return nothing
-end
-
 @kernel function _layered_thermodynamic_time_step!(ice_thickness,
                                                    ice_concentration,
                                                    grid,
@@ -219,7 +215,16 @@ end
     # Effective melting temperature: snow (0 C) when snow present, ice otherwise
     Tm = ifelse(hsⁿ > 0, zero(Tm), Tm)
 
-    update_snow_surface_temperature!(i, j, grid, snow_top_bc, Tu, consolidated_ice, Tb, Tm, Qic, Qu, clock, model_fields)
+    if !isa(snow_top_bc, PrescribedTemperature)
+        if consolidated_ice
+            @inbounds Tu⁻ = Tu[i, j, 1]
+            Tuⁿ = top_surface_temperature(i, j, grid, snow_top_bc, Tu⁻, Qic, Qu, clock, model_fields)
+            Tuⁿ = min(Tuⁿ, Tm)
+        else
+            Tuⁿ = Tb
+        end
+        @inbounds Tu[i, j, 1] = Tuⁿ
+    end
 
     @inbounds Tus = Tu[i, j, 1]
 

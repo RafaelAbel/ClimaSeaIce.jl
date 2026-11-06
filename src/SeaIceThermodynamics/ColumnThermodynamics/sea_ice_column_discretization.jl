@@ -59,6 +59,15 @@ on_architecture(arch, z::SeaIceColumnDiscretization) =
                                on_architecture(arch, z.hs⁻),
                                on_architecture(arch, z.hb⁻))
 
+# A grid rebuilt from an existing one keeps its interface heights. A fresh grid has none to copy.
+copy_column_interface!(destination, ::Nothing, arch) = nothing
+
+function copy_column_interface!(destination, source, arch)
+    region = map(intersect, axes(destination), axes(source))
+    view(destination, region...) .= view(on_architecture(arch, source), region...)
+    return nothing
+end
+
 # Materialize the reference layers and allocate the two-interface height fields during grid construction.
 function Grids.generate_coordinate(FT, topology, size, halo, coordinate::SeaIceColumnDiscretization, coordinate_name, dim::Int, arch)
     dim == 3 && coordinate_name == :z || throw(ArgumentError("SeaIceColumnDiscretization is supported only for the z-coordinate"))
@@ -79,13 +88,10 @@ function Grids.generate_coordinate(FT, topology, size, halo, coordinate::SeaIceC
     fill!(hbⁿ, zero(FT)); fill!(hb⁻, zero(FT))
     fill!(hsⁿ, convert(FT, Lr)); fill!(hs⁻, convert(FT, Lr))
 
-    if !isnothing(coordinate.hsⁿ)
-        region = map(intersect, axes(hsⁿ), axes(coordinate.hsⁿ))
-        view(hsⁿ, region...) .= view(on_architecture(arch, coordinate.hsⁿ), region...)
-        view(hbⁿ, region...) .= view(on_architecture(arch, coordinate.hbⁿ), region...)
-        view(hs⁻, region...) .= view(on_architecture(arch, coordinate.hs⁻), region...)
-        view(hb⁻, region...) .= view(on_architecture(arch, coordinate.hb⁻), region...)
-    end
+    copy_column_interface!(hsⁿ, coordinate.hsⁿ, arch)
+    copy_column_interface!(hbⁿ, coordinate.hbⁿ, arch)
+    copy_column_interface!(hs⁻, coordinate.hs⁻, arch)
+    copy_column_interface!(hb⁻, coordinate.hb⁻, arch)
 
     coordinate = SeaIceColumnDiscretization(rᵃᵃᶠ, rᵃᵃᶜ, Δrᵃᵃᶠ, Δrᵃᵃᶜ, hsⁿ, hbⁿ, hs⁻, hb⁻)
 

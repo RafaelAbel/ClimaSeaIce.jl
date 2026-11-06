@@ -1970,3 +1970,13 @@ end
         @test vec(Array(interior(salt.fields.bulk_salinity))) ≈ -expected
     end
 end
+
+@testset "Column ice with slab snow is validated when the model is built" begin
+    grid = RectilinearGrid(size = 8, z = SeaIceColumnDiscretization((0, 1)), topology = (Flat, Flat, Bounded))
+    ice(top) = prescribed_salinity_enthalpy_thermodynamics(grid; salinity_profile = 0,
+        energy_transport = ConductiveTemperatureTransport(conductivity = 2),
+        heat_boundary_conditions = (top, bottom = PrescribedTemperature(-1.8)))
+    snow = snow_slab_thermodynamics(grid)
+    @test SeaIceModel(grid; ice_thermodynamics = ice(MeltingConstrainedFluxBalance()), snow_thermodynamics = snow) isa SeaIceModel
+    @test_throws ArgumentError SeaIceModel(grid; ice_thermodynamics = ice(PrescribedTemperature(-5)), snow_thermodynamics = snow)
+end

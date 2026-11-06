@@ -1544,7 +1544,7 @@ end
     model = SeaIceModel(grid; ice_thermodynamics = thermodynamics)
 
     set!(model, h = 0.3, ℵ = 1)
-    @test isapprox(column_height(grid, 1, 1), 0.3; rtol = 1e-12)
+    @test isapprox(column_height(1, 1, grid), 0.3; rtol = 1e-12)
     copied = similar(grid)
     expanded = Oceananigans.Grids.with_halo((0, 0, 4), grid)
     expected_height = znode(1, 1, 4, grid, Center(), Center(), Center())

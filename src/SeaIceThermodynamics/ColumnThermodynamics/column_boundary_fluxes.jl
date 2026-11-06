@@ -40,19 +40,19 @@ end
     @inbounds begin
         T = fields.temperature[i, j, Nz]
         Tₘ = melting_temperature(relation.phase_transitions.liquidus, fields.bulk_salinity[i, j, Nz])
-        consolidated = column_consolidated(column_height(grid, i, j), consolidation_thickness[i, j, 1])
+        consolidated = column_consolidated(column_height(i, j, grid), consolidation_thickness[i, j, 1])
         bcs = heat_boundary_conditions
-        reservoir_temperature = column_bottom_reference_temperature(bcs.bottom, i, j, grid, fields, relation, model_fields)
+        reservoir_temperature = column_bottom_reference_temperature(i, j, grid, bcs.bottom, fields, relation, model_fields)
         # Unconsolidated ice exchanges heat with its isothermal basal reservoir.
         cap_temperature = ifelse(consolidated, Tₘ, min(reservoir_temperature, Tₘ))
         Tₛ⁻ = snow.temperature[i, j, 1]
         hs = snow.thickness[i, j, 1]
         ρs = get_tracer(i, j, 1, grid, snow.density)
-        R = ifelse(hs > 0, hs / (snow.conductivity * itd_factor(snow.itd_shape, column_height(grid, i, j))), zero(hs))
+        R = ifelse(hs > 0, hs / (snow.conductivity * itd_factor(snow.itd_shape, column_height(i, j, grid))), zero(hs))
         # Backward-Euler snow balance: ρs L (hsⁿ − hs⁺) = Δt Qˢ.
         M = ρs * snow.latent_heat * hs / Δt
         C = column_boundary_temperature_conductance(i, j, Nz+1, Nz, grid, auxiliary)
-        active = !Oceananigans.ImmersedBoundaries.immersed_cell(i, j, Nz, grid) & (column_height(grid, i, j) > 0)
+        active = !Oceananigans.ImmersedBoundaries.immersed_cell(i, j, Nz, grid) & (column_height(i, j, grid) > 0)
         C = ifelse(active, C, one(C))
         K = ifelse(R > 0, 1 / R, zero(R))
         χ = ifelse(C == 0, zero(C), C * R)
@@ -144,7 +144,7 @@ end
     T  = @inbounds fields.temperature[i, j, k]
     E  = @inbounds fields.internal_energy[i, j, k]
     TE = @inbounds fields.temperature_energy_derivative[i, j, k]
-    Tᵇ = column_dirichlet_temperature(bc, i, j, grid, relation, model_fields)
+    Tᵇ = column_dirichlet_temperature(i, j, grid, bc, relation, model_fields)
     return conductance * (T - Tᵇ - TE * E)
 end
 
@@ -154,7 +154,7 @@ end
     T  = @inbounds fields.temperature[i, j, k]
     E  = @inbounds fields.internal_energy[i, j, k]
     TE = @inbounds fields.temperature_energy_derivative[i, j, k]
-    Tᵇ = column_dirichlet_temperature(bc, i, j, grid, relation, model_fields)
+    Tᵇ = column_dirichlet_temperature(i, j, grid, bc, relation, model_fields)
     return conductance * (Tᵇ - T + TE * E) - getflux(ext, i, j, grid, Tᵇ, clock, model_fields)
 end
 

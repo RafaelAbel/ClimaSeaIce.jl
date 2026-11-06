@@ -41,7 +41,7 @@ end
 
         boundary_factor = ifelse(k == 1, column_bottom_boundary_energy_factor(i, j, k, grid, bcs.bottom, Qe.bottom, auxiliary, fields, relation, clock, model_fields, Δt), zero(Δt)) +
                           ifelse(k == Nz, column_top_boundary_energy_factor(i, j, k, grid, bcs.top, Qe.top, auxiliary, fields, relation, clock, model_fields, Δt), zero(Δt))
-        consolidated = column_consolidated(column_height(grid, i, j), consolidation_thickness[i, j, 1])
+        consolidated = column_consolidated(column_height(i, j, grid), consolidation_thickness[i, j, 1])
 
         store_tridiagonal_row!(i, j, k, grid, auxiliary, consolidated, left_self, right_self, lower_neighbor, right_neighbor, boundary_factor)
 
@@ -59,7 +59,7 @@ end
 
         salinity = fields.bulk_salinity[i, j, k]
         melting_point = melting_temperature(relation.phase_transitions.liquidus, salinity)
-        reservoir_temperature = min(column_bottom_reference_temperature(bcs.bottom, i, j, grid, fields, relation, model_fields), melting_point)
+        reservoir_temperature = min(column_bottom_reference_temperature(i, j, grid, bcs.bottom, fields, relation, model_fields), melting_point)
         reservoir_energy = internal_energy(relation, reservoir_temperature, salinity)
         auxiliary.energy_rhs[i, j, k] = ifelse(consolidated, previous_to_current_column_metric_ratio(i, j, k, grid) * initial_energy[i, j, k] + moving_tendency + Δt * flux_tendency, reservoir_energy)
     end
@@ -109,7 +109,7 @@ solve_column_energy_system!(thermodynamics::ColumnEnergyThermodynamics) = solve!
     left_factor  = ifelse(k == 1, zero(Δt), diffusion_factor(i, j, k, k, grid, κS, Δt))
     right_factor = ifelse(k == Nz, zero(Δt), diffusion_factor(i, j, k, k+1, grid, κS, Δt))
     lower_factor = ifelse(k == Nz, zero(Δt), diffusion_factor(i, j, min(Nz, k+1), k+1, grid, κS, Δt))
-    active = column_height(grid, i, j) > 0
+    active = column_height(i, j, grid) > 0
     store_tridiagonal_row!(i, j, k, grid, auxiliary, active, left_factor, right_factor, lower_factor, right_factor, zero(Δt))
 
     moving_tendency = (moving_face_displacement_flux(i, j, k+1, grid, S, fields, nothing, nothing, nothing) -
@@ -142,8 +142,10 @@ solve_column_salinity_system!(thermodynamics::ColumnEnergyThermodynamics) = solv
 
 Advance the prognostic bulk salinity by one conservative moving-grid diffusion step. Prescribed salinity is left unchanged.
 """
-function column_salinity_time_step!(thermodynamics::ColumnEnergyThermodynamics, Δt)
-    thermodynamics.salinity_closure isa PrognosticBulkSalinity || return nothing
+column_salinity_time_step!(thermodynamics::ColumnEnergyThermodynamics, Δt) = column_salinity_time_step!(thermodynamics, thermodynamics.salinity_closure, Δt)
+column_salinity_time_step!(thermodynamics, ::PrescribedBulkSalinity, Δt) = nothing
+
+function column_salinity_time_step!(thermodynamics, ::PrognosticBulkSalinity, Δt)
     assemble_column_salinity_system!(thermodynamics, Δt)
     solve_column_salinity_system!(thermodynamics)
     compute_column_thermodynamic_diagnostics!(thermodynamics)

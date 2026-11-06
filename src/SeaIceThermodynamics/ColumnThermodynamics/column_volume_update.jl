@@ -63,20 +63,20 @@ end
 @inline function column_basal_stefan_flux(i, j, grid, boundary::ColumnDirichletBoundary, ext, fields, auxiliary, relation, clock, model_fields)
     conductance = column_boundary_temperature_conductance(i, j, 1, 1, grid, auxiliary)
     T₁ = @inbounds fields.temperature[i, j, 1]
-    Tᵇ = column_dirichlet_temperature(boundary, i, j, grid, relation, model_fields)
+    Tᵇ = column_dirichlet_temperature(i, j, grid, boundary, relation, model_fields)
     Qᵇ = getflux(ext, i, j, grid, Tᵇ, clock, model_fields)
     return conductance * (Tᵇ - T₁) - Qᵇ
 end
 
 # Unconsolidated (single-layer slab) top heat loss; a Dirichlet top adds the single-layer conduction k/h (Tᵇ − Tᵗ).
-@inline function column_unconsolidated_top_flux(i, j, grid, bc, ext, conductivity, Tᵇ, h, fields, auxiliary, relation, clock, model_fields)
-    Q = getflux(ext, i, j, grid, Tᵇ, clock, model_fields)
-    @inbounds surface_flux = auxiliary.surface_fluxes.heat[i, j, 1] - auxiliary.surface_fluxes.ice_melt[i, j, 1]
-    return ifelse(bc isa MeltingConstrainedFluxBalance, surface_flux, Q)
-end
+@inline column_unconsolidated_top_flux(i, j, grid, bc, ext, conductivity, Tᵇ, h, fields, auxiliary, relation, clock, model_fields) =
+    getflux(ext, i, j, grid, Tᵇ, clock, model_fields)
+
+@inline column_unconsolidated_top_flux(i, j, grid, ::MeltingConstrainedFluxBalance, ext, conductivity, Tᵇ, h, fields, auxiliary, relation, clock, model_fields) =
+    @inbounds auxiliary.surface_fluxes.heat[i, j, 1] - auxiliary.surface_fluxes.ice_melt[i, j, 1]
 
 @inline function column_unconsolidated_top_flux(i, j, grid, bc::ColumnDirichletBoundary, ext, conductivity, Tᵇ, h, fields, auxiliary, relation, clock, model_fields)
-    Tᵗ = column_dirichlet_temperature(bc, i, j, grid, relation, model_fields)
+    Tᵗ = column_dirichlet_temperature(i, j, grid, bc, relation, model_fields)
     k  = ice_thermal_conductivity(conductivity, Tᵗ, @inbounds(fields.bulk_salinity[i, j, 1]))
     Qi = ifelse(h ≤ zero(h), zero(h), k / h * (Tᵇ - Tᵗ))
     return Qi + getflux(ext, i, j, grid, Tᵗ, clock, model_fields)
@@ -92,7 +92,7 @@ end
     correction = column_cell_flux_correction(i, j, grid, Qe.bottom, ℵ, zero(eltype(grid)), clock, model_fields)
     consolidated_tendency = ℵ * (δhᵇ + δhˢ) / Δt - correction / (ρ * phase_transitions.reference_latent_heat)
 
-    Tᵇ = column_bottom_reference_temperature(bcs.bottom, i, j, grid, fields, relation, model_fields)
+    Tᵇ = column_bottom_reference_temperature(i, j, grid, bcs.bottom, fields, relation, model_fields)
     ℰ = ρ * latent_heat(phase_transitions, Tᵇ)
     Qᵘ = column_unconsolidated_top_flux(i, j, grid, bcs.top, Qe.top, conductivity, Tᵇ, h, fields, auxiliary, relation, clock, model_fields)
     Qᵇ = getflux(Qe.bottom, i, j, grid, Tᵇ, clock, model_fields)

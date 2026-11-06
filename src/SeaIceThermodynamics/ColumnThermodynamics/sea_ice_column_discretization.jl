@@ -104,12 +104,12 @@ Grids.cpu_face_constructor_z(grid::SeaIceColumnUnderlyingGrid) =
 @inline sea_ice_discretization(grid::SeaIceColumnUnderlyingGrid) = grid.z
 @inline sea_ice_discretization(grid::ImmersedBoundaryGrid) = grid.underlying_grid.z
 
-@inline column_height(grid, i, j) = @inbounds sea_ice_discretization(grid).hsⁿ[i, j, 1] - sea_ice_discretization(grid).hbⁿ[i, j, 1]
-@inline previous_column_height(grid, i, j) = @inbounds sea_ice_discretization(grid).hs⁻[i, j, 1] - sea_ice_discretization(grid).hb⁻[i, j, 1]
+@inline column_height(i, j, grid) = @inbounds sea_ice_discretization(grid).hsⁿ[i, j, 1] - sea_ice_discretization(grid).hbⁿ[i, j, 1]
+@inline previous_column_height(i, j, grid) = @inbounds sea_ice_discretization(grid).hs⁻[i, j, 1] - sea_ice_discretization(grid).hb⁻[i, j, 1]
 
 # z-star metric: σ = column height / reference height.
-@inline Operators.σⁿ(i, j, k, grid::SeaIceColumnUnderlyingGrid, ℓx, ℓy, ℓz) = column_height(grid, i, j) / grid.Lz
-@inline Operators.σ⁻(i, j, k, grid::SeaIceColumnUnderlyingGrid, ℓx, ℓy, ℓz) = previous_column_height(grid, i, j) / grid.Lz
+@inline Operators.σⁿ(i, j, k, grid::SeaIceColumnUnderlyingGrid, ℓx, ℓy, ℓz) = column_height(i, j, grid) / grid.Lz
+@inline Operators.σ⁻(i, j, k, grid::SeaIceColumnUnderlyingGrid, ℓx, ℓy, ℓz) = previous_column_height(i, j, grid) / grid.Lz
 
 @inline Operators.Δzᶜᶜᶜ(i, j, k, grid::SeaIceColumnGrid) = Operators.Δrᶜᶜᶜ(i, j, k, grid) * Operators.σⁿ(i, j, k, grid, Center(), Center(), Center())
 @inline Operators.Δzᶜᶜᶠ(i, j, k, grid::SeaIceColumnGrid) = Operators.Δrᶜᶜᶠ(i, j, k, grid) * Operators.σⁿ(i, j, k, grid, Center(), Center(), Face())

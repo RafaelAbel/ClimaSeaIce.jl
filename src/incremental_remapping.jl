@@ -5,6 +5,10 @@ using Oceananigans.Operators: Azᶜᶜᶜ, Δxᶜᶜᶜ, Δyᶜᶜᶜ, Δxᶠᶜ
 using Oceananigans.Utils: KernelParameters
 using .SeaIceThermodynamics: ColumnEnergyThermodynamics, SeaIceColumnGrid
 
+# Layered tracers are only transported on a resolved column grid.
+column_transport_field(grid, LX, LY) = nothing
+column_transport_field(grid::SeaIceColumnGrid, LX, LY) = Field{LX, LY, Center}(grid)
+
 """
     struct IncrementalRemapping
 
@@ -55,8 +59,6 @@ function Oceananigans.Advection.materialize_advection(scheme::IncrementalRemappi
     end
 
     center_field() = Field{Center, Center, Nothing}(grid)
-    x_column_field() = grid isa SeaIceColumnGrid ? Field{Face, Center, Center}(grid) : nothing
-    y_column_field() = grid isa SeaIceColumnGrid ? Field{Center, Face, Center}(grid) : nothing
 
     # `(xa, ya)` is the centroid of the reconstructed ice area, which anchors the tracer reconstructions.
     reconstruction = (ℵx = center_field(), ℵy = center_field(),
@@ -67,13 +69,13 @@ function Oceananigans.Advection.materialize_advection(scheme::IncrementalRemappi
     transports = (x = (ℵ = Field{Face, Center, Nothing}(grid),
                        𝓋 = Field{Face, Center, Nothing}(grid),
                        𝓋s = Field{Face, Center, Nothing}(grid),
-                       E = x_column_field(),
-                       bulk_salinity = x_column_field()),
+                       E = column_transport_field(grid, Face, Center),
+                       bulk_salinity = column_transport_field(grid, Face, Center)),
                   y = (ℵ = Field{Center, Face, Nothing}(grid),
                        𝓋 = Field{Center, Face, Nothing}(grid),
                        𝓋s = Field{Center, Face, Nothing}(grid),
-                       E = y_column_field(),
-                       bulk_salinity = y_column_field()))
+                       E = column_transport_field(grid, Center, Face),
+                       bulk_salinity = column_transport_field(grid, Center, Face)))
 
     R = typeof(reconstruction)
     T = typeof(transports)
@@ -477,8 +479,9 @@ function compute_tracer_tendencies!(model::SIM, advection::IncrementalRemapping{
     return nothing
 end
 
-function compute_column_transports!(thermodynamics, arch, grid, transports)
-    thermodynamics isa ColumnEnergyThermodynamics || return nothing
+compute_column_transports!(thermodynamics, arch, grid, transports) = nothing
+
+function compute_column_transports!(thermodynamics::ColumnEnergyThermodynamics, arch, grid, transports)
     Nx, Ny, Nz = size(grid)
     for (name, tracer) in pairs(prognostic_fields(thermodynamics))
         Fx = getproperty(transports.x, name)
@@ -508,9 +511,10 @@ end
     end
 end
 
-function remap_column_tracers!(model, advection, Δt)
-    thermodynamics = model.ice_thermodynamics
-    advection isa IncrementalRemapping && thermodynamics isa ColumnEnergyThermodynamics || return nothing
+remap_column_tracers!(model, advection, Δt) = remap_column_tracers!(model, advection, model.ice_thermodynamics, Δt)
+remap_column_tracers!(model, advection, thermodynamics, Δt) = nothing
+
+function remap_column_tracers!(model, advection::IncrementalRemapping, thermodynamics::ColumnEnergyThermodynamics, Δt)
     grid = model.grid
     transports = advection.transports
     for (name, tracer) in pairs(prognostic_fields(thermodynamics))

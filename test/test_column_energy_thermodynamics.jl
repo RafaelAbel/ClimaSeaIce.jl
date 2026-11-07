@@ -52,11 +52,12 @@ using ClimaSeaIce: IncrementalRemapping, UniformThicknessDistribution, snow_slab
 using ClimaSeaIce.SeaIceThermodynamics: itd_factor
 using Adapt
 using Oceananigans
-using Oceananigans.TimeSteppers: Clock, time_step!
+using Oceananigans.BoundaryConditions: fill_halo_regions!
+using Oceananigans.TimeSteppers: Clock, time_step!, update_state!
 using ClimaSeaIce: PhaseTransitions
 using Oceananigans.Fields: interior, set!, ConstantField
 using Oceananigans.AbstractOperations: KernelFunctionOperation
-using Oceananigans.Operators: Δzᶜᶜᶜ
+using Oceananigans.Operators: Azᶜᶜᶜ, Δyᶜᶠᶜ, Δzᶜᶜᶜ
 using Oceananigans.Grids: znode
 using Oceananigans: fields, prognostic_fields, prognostic_state, restore_prognostic_state!
 using Test
@@ -2032,4 +2033,75 @@ end
     snow = snow_slab_thermodynamics(grid)
     @test SeaIceModel(grid; ice_thermodynamics = ice(MeltingConstrainedFluxBalance()), snow_thermodynamics = snow) isa SeaIceModel
     @test_throws ArgumentError SeaIceModel(grid; ice_thermodynamics = ice(PrescribedTemperature(-5)), snow_thermodynamics = snow)
+end
+
+@testset "Layered remapping through a tripolar fold conserves volume and heat" begin
+    # Thin ice facing thick ice across the fold: the state that took one column of a global run below absolute zero.
+    function remap_facing_columns(direction; steps = 6, Δt = 5400.0)
+        grid = TripolarGrid(CPU(), Float64; size = (8, 8, 8), halo = (3, 3, 3),
+                            z = SeaIceColumnDiscretization((0, 1)), fold_topology = Oceananigans.Grids.RightFaceFolded)
+        ice = ColumnEnergyThermodynamics(grid; salinity_closure = PrescribedBulkSalinity(4),
+                                         energy_transport = ConductiveTemperatureTransport(conductivity = 2),
+                                         heat_boundary_conditions = insulating_boundaries())
+        model = SeaIceModel(grid; ice_thermodynamics = ice, timestepper = :ForwardEuler,
+                            advection = IncrementalRemapping(), dynamics = nothing)
+        Nx, Ny, Nz = size(grid)
+        left, right = 3, Nx - 2
+        donor, receiver = direction === :to_right ? (left, right) : (right, left)
+        h, ℵ, v = model.ice_thickness, model.ice_concentration, model.velocities.v
+        E, T = ice.fields.internal_energy, ice.fields.temperature
+
+        interior(h) .= 0
+        interior(ℵ) .= 0
+        h[donor, Ny, 1], ℵ[donor, Ny, 1] = 1.46, 0.626
+        h[receiver, Ny, 1], ℵ[receiver, Ny, 1] = 1.37, 0.0118
+        set!(ice; bulk_salinity = 4, temperature = (λ, φ, z) -> -1)
+        for k in 1:Nz
+            T[receiver, Ny, k] = -3
+        end
+        ClimaSeaIce.SeaIceThermodynamics.compute_column_internal_energy!(ice)
+
+        # Moves about 0.7% of the donor's area per step through the fold; the left half of the fold row is the one that is kept.
+        speed = 0.00706 * Δyᶜᶠᶜ(left, Ny + 1, 1, grid) / Δt
+        v[left, Ny + 1, 1] = direction === :to_right ? speed : -speed
+        fill_halo_regions!(v)
+        update_state!(model)
+
+        volume(i) = h[i, Ny, 1] * ℵ[i, Ny, 1]
+        total_volume() = sum(volume(i) * Azᶜᶜᶜ(i, Ny, 1, grid) for i in 1:Nx)
+        total_heat() = sum(volume(i) * Azᶜᶜᶜ(i, Ny, 1, grid) * sum(E[i, Ny, k] for k in 1:Nz) / Nz for i in 1:Nx)
+        layer_energy() = [E[i, Ny, k] for i in (donor, receiver), k in 1:Nz if volume(i) > 0]
+
+        V₀, Q₀ = total_volume(), total_heat()
+        E₋, E₊ = extrema(layer_energy())
+        receiver_volume₀, donor_volume₀ = volume(receiver), volume(donor)
+        energy_in_range = true
+        for _ in 1:steps
+            time_step!(model, Δt)
+            energy_in_range &= all(e -> E₋ * (1 - 1e-12) ≤ e ≤ E₊ * (1 + 1e-12), layer_energy())
+        end
+
+        return (; transports = model.advection.transports, V₀, Q₀, ΔV = total_volume() - V₀, ΔQ = total_heat() - Q₀, energy_in_range,
+                gained = volume(receiver) - receiver_volume₀, lost = donor_volume₀ - volume(donor),
+                receiver_volume = volume(receiver), receiver_energy = E[receiver, Ny, 1])
+    end
+
+    to_right = remap_facing_columns(:to_right)
+    to_left = remap_facing_columns(:to_left)
+
+    for direction in (to_right, to_left)
+        @test abs(direction.ΔV) ≤ 1e-12 * direction.V₀
+        @test abs(direction.ΔQ) ≤ 1e-12 * abs(direction.Q₀)
+        @test direction.energy_in_range
+        @test direction.gained > 0
+        @test direction.lost > 0
+    end
+
+    # A mirror image of the flow gives a mirror image of the result.
+    @test to_right.receiver_volume ≈ to_left.receiver_volume rtol = 1e-12
+    @test to_right.receiver_energy ≈ to_left.receiver_energy rtol = 1e-12
+
+    for transports in to_right.transports, name in (:ℵ, :𝓋, :𝓋s, :E, :bulk_salinity)
+        @test transports[name].boundary_conditions.north.condition == -1
+    end
 end

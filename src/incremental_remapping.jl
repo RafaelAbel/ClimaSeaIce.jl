@@ -7,7 +7,9 @@ using .SeaIceThermodynamics: ColumnEnergyThermodynamics, SeaIceColumnGrid
 
 # Layered tracers are only transported on a resolved column grid.
 column_transport_field(grid, LX, LY) = nothing
-column_transport_field(grid::SeaIceColumnGrid, LX, LY) = Field{LX, LY, Center}(grid)
+column_transport_field(grid::SeaIceColumnGrid, LX, LY) = transport_field(grid, LX, LY, Center)
+
+transport_field(grid, LX, LY, LZ) = Field{LX, LY, LZ}(grid; boundary_conditions = fold_antisymmetric_boundary_conditions(grid, (LX(), LY(), LZ())))
 
 """
     struct IncrementalRemapping
@@ -66,14 +68,14 @@ function Oceananigans.Advection.materialize_advection(scheme::IncrementalRemappi
                       hsx = center_field(), hsy = center_field(),
                       xa = center_field(), ya = center_field())
 
-    transports = (x = (ℵ = Field{Face, Center, Nothing}(grid),
-                       𝓋 = Field{Face, Center, Nothing}(grid),
-                       𝓋s = Field{Face, Center, Nothing}(grid),
+    transports = (x = (ℵ = transport_field(grid, Face, Center, Nothing),
+                       𝓋 = transport_field(grid, Face, Center, Nothing),
+                       𝓋s = transport_field(grid, Face, Center, Nothing),
                        E = column_transport_field(grid, Face, Center),
                        bulk_salinity = column_transport_field(grid, Face, Center)),
-                  y = (ℵ = Field{Center, Face, Nothing}(grid),
-                       𝓋 = Field{Center, Face, Nothing}(grid),
-                       𝓋s = Field{Center, Face, Nothing}(grid),
+                  y = (ℵ = transport_field(grid, Center, Face, Nothing),
+                       𝓋 = transport_field(grid, Center, Face, Nothing),
+                       𝓋s = transport_field(grid, Center, Face, Nothing),
                        E = column_transport_field(grid, Center, Face),
                        bulk_salinity = column_transport_field(grid, Center, Face)))
 

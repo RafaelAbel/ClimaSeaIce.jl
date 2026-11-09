@@ -11,9 +11,11 @@ using Oceananigans.TimeSteppers: TimeStepper
 using Oceananigans.Utils: prettysummary
 
 using .SeaIceDynamics: materialize_solver, maybe_extended_grid
-using .SeaIceThermodynamics: PrescribedTemperature, FluxFunction,
+using .SeaIceThermodynamics: PrescribedTemperature, FluxFunction, SlabThermodynamics,
                              PhaseTransitions, internal_flux_function,
-                             writable_top_surface_temperature
+                             writable_top_surface_temperature,
+                             validate_snow_coupling,
+                             ColumnEnergyThermodynamics, initialize_column_interfaces!
 using .SeaIceThermodynamics.HeatBoundaryConditions: flux_summary
 
 @inline instantiate(T::DataType) = T()
@@ -214,6 +216,8 @@ function SeaIceModel(grid;
         merge(prognostic_fields, (; S = ice_salinity))
     end
 
+    thermodynamic_prognostic_fields = component_prognostic_fields(ice_thermodynamics)
+    prognostic_fields = merge(prognostic_fields, thermodynamic_prognostic_fields)
     prognostic_fields = isnothing(dynamics) ? prognostic_fields : merge(prognostic_fields, velocities)
 
     # TODO: should we have ice thickness and concentration as part of the tracers or
@@ -228,9 +232,11 @@ function SeaIceModel(grid;
         ice_thermodynamics = writable_top_surface_temperature(ice_thermodynamics, grid)
     end
 
+    validate_snow_coupling(ice_thermodynamics, snow_thermodynamics)
+
     if !isnothing(ice_thermodynamics)
         if isnothing(top_heat_flux)
-            if isnothing(snow_thermodynamics) &&
+            if isnothing(snow_thermodynamics) && ice_thermodynamics isa SlabThermodynamics &&
                ice_thermodynamics.heat_boundary_conditions.top isa PrescribedTemperature
                 # Default: external top flux is in equilibrium with internal fluxes.
                 # Build a FluxFunction wrapper using the model's shared phase transitions.
@@ -303,8 +309,13 @@ function Oceananigans.Fields.set!(model::SIM; h=nothing, ℵ=nothing, hs=nothing
         set!(model.snow_thickness, hs)
     end
 
+    !isnothing(h) && sync_column_grid_interfaces!(model.ice_thermodynamics, model.grid, model.ice_thickness)
+
     return nothing
 end
+
+sync_column_grid_interfaces!(ice_thermodynamics, grid, ice_thickness) = nothing
+sync_column_grid_interfaces!(::ColumnEnergyThermodynamics, grid, ice_thickness) = initialize_column_interfaces!(grid, ice_thickness)
 
 Oceananigans.Fields.set!(model::SIM, new_clock::Clock) = set!(model.clock, new_clock)
 

@@ -6,6 +6,7 @@ using Oceananigans.Fields: interior, set!
 using Oceananigans.Grids: ZDirection, rnode, znode
 using Oceananigans.Operators: Δzᶜᶜᶜ, Δzᶜᶜᶠ, σ⁻, σⁿ
 using Oceananigans.Solvers: BatchedTridiagonalSolver, solve!
+using Oceananigans.TimeSteppers: SplitRungeKuttaTimeStepper
 using Oceananigans.Utils: launch!, KernelParameters, worksize
 
 # Enthalpy/temperature/salinity relations and the moving two-interface vertical coordinate.
@@ -20,8 +21,9 @@ include("column_energy_thermodynamics.jl")
 include("column_diagnostics.jl")
 include("column_boundary_fluxes.jl")
 
-# Implicit energy and salinity tridiagonal solves.
+# Implicit energy/salinity tridiagonal solves and the moving-grid volume update.
 include("column_solvers.jl")
+include("column_volume_update.jl")
 
 # Coupled time stepping.
 include("column_time_stepping.jl")

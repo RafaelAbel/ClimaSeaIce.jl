@@ -20,6 +20,10 @@ export SlabThermodynamics,
        BubblyBrineConductivity,
        ice_thermal_conductivity,
        face_thermal_conductivity,
+       ColumnEnergyThermodynamics,
+       SeaIceColumnDiscretization,
+       prescribed_salinity_enthalpy_thermodynamics,
+       evolving_salinity_mushy_thermodynamics,
        PrescribedBulkSalinity,
        PrognosticBulkSalinity,
        ConductiveTemperatureTransport,
@@ -27,6 +31,7 @@ export SlabThermodynamics,
        BulkSalinityDiffusion,
        NoShortwaveAbsorption,
        ExponentialShortwaveAbsorption,
+       FluxBoundary,
        MeltingConstrainedFluxBalance,
        PrescribedTemperature,
        RadiativeEmission,
@@ -203,11 +208,11 @@ end
 
 include("HeatBoundaryConditions/HeatBoundaryConditions.jl")
 
-using Oceananigans.Fields: field, Field, Center, ConstantField
+using Oceananigans.Fields: field, Field, Center, Face, ConstantField
 
 using .HeatBoundaryConditions: IceWaterThermalEquilibrium, MeltingConstrainedFluxBalance,
                                RadiativeEmission, FluxFunction, LinearizedSurfaceFlux, PrescribedTemperature,
-                               getflux
+                               FluxBoundary, getflux
 
 # Enthalpy thermodynamics is not included in this module yet.
 # include("EnthalpyMethodThermodynamics.jl")

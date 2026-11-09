@@ -4,7 +4,8 @@ export MeltingConstrainedFluxBalance,
        PrescribedTemperature,
        RadiativeEmission,
        FluxFunction,
-       LinearizedSurfaceFlux
+       LinearizedSurfaceFlux,
+       FluxBoundary
 
 using Adapt: Adapt, adapt
 using Oceananigans: Oceananigans
@@ -28,5 +29,6 @@ Adapt.adapt_structure(to, pt::PrescribedTemperature) =
 include("bottom_heat_boundary_conditions.jl")
 include("top_heat_boundary_conditions.jl")
 include("boundary_fluxes.jl")
+include("column_heat_boundary_conditions.jl")
 
 end

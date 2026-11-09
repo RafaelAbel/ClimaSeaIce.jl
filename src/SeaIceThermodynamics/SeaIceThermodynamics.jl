@@ -4,6 +4,29 @@ export SlabThermodynamics,
        snow_slab_thermodynamics,
        sea_ice_slab_thermodynamics,
        PhaseTransitions,
+       QuadraticLiquidusEnergyRelation,
+       FixedDrainedIceSalinityProfile,
+       salinity_at_normalized_depth,
+       salinity_at_normalized_height,
+       FixedSalinityBrinePocketEnergyRelation,
+       internal_energy,
+       temperature,
+       temperature_energy_derivative,
+       temperature_salinity_derivative,
+       liquid_fraction,
+       brine_salinity,
+       complete_melt_energy,
+       MaykutUntersteinerConductivity,
+       BubblyBrineConductivity,
+       ice_thermal_conductivity,
+       face_thermal_conductivity,
+       PrescribedBulkSalinity,
+       PrognosticBulkSalinity,
+       ConductiveTemperatureTransport,
+       NoSalinityTransport,
+       BulkSalinityDiffusion,
+       NoShortwaveAbsorption,
+       ExponentialShortwaveAbsorption,
        MeltingConstrainedFluxBalance,
        PrescribedTemperature,
        RadiativeEmission,
@@ -11,7 +34,8 @@ export SlabThermodynamics,
        IceSnowConductiveFlux,
        UniformThicknessDistribution,
        GammaThicknessDistribution,
-       FluxFunction
+       FluxFunction,
+       LinearizedSurfaceFlux
 
 using Adapt: Adapt
 using Oceananigans: Oceananigans, fields
@@ -182,13 +206,14 @@ include("HeatBoundaryConditions/HeatBoundaryConditions.jl")
 using Oceananigans.Fields: field, Field, Center, ConstantField
 
 using .HeatBoundaryConditions: IceWaterThermalEquilibrium, MeltingConstrainedFluxBalance,
-                               RadiativeEmission, FluxFunction, PrescribedTemperature,
+                               RadiativeEmission, FluxFunction, LinearizedSurfaceFlux, PrescribedTemperature,
                                getflux
 
 # Enthalpy thermodynamics is not included in this module yet.
 # include("EnthalpyMethodThermodynamics.jl")
 
 include("slab_heat_and_tracer_fluxes.jl")
+include("ColumnThermodynamics/ColumnThermodynamics.jl")
 include("slab_sea_ice_thermodynamics.jl")
 include("slab_thermodynamics_tendencies.jl")
 include("thermodynamic_time_step.jl")

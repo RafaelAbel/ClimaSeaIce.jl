@@ -3,7 +3,8 @@ module HeatBoundaryConditions
 export MeltingConstrainedFluxBalance,
        PrescribedTemperature,
        RadiativeEmission,
-       FluxFunction
+       FluxFunction,
+       LinearizedSurfaceFlux
 
 using Adapt: Adapt, adapt
 using Oceananigans: Oceananigans

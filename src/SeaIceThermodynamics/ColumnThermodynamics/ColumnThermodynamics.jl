@@ -1,10 +1,12 @@
 using Oceananigans: prognostic_state, prognostic_fields, restore_prognostic_state!
 using KernelAbstractions: @kernel, @index
 using Oceananigans.Architectures: architecture
-using Oceananigans.Fields: set!
-using Oceananigans.Grids: ZDirection, rnode
-using Oceananigans.Solvers: BatchedTridiagonalSolver
-using Oceananigans.Utils: launch!
+using Oceananigans.BoundaryConditions: fill_halo_regions!
+using Oceananigans.Fields: interior, set!
+using Oceananigans.Grids: ZDirection, rnode, znode
+using Oceananigans.Operators: Δzᶜᶜᶜ, Δzᶜᶜᶠ, σ⁻, σⁿ
+using Oceananigans.Solvers: BatchedTridiagonalSolver, solve!
+using Oceananigans.Utils: launch!, KernelParameters, worksize
 
 # Enthalpy/temperature/salinity relations and the moving two-interface vertical coordinate.
 include("column_energy_relations.jl")
@@ -14,5 +16,12 @@ include("sea_ice_column_discretization.jl")
 include("column_parameterizations.jl")
 include("column_energy_thermodynamics.jl")
 
-# Thermodynamic diagnostics.
+# Per-step diagnostics, transport coefficients, and boundary-flux contributions to the solves.
 include("column_diagnostics.jl")
+include("column_boundary_fluxes.jl")
+
+# Implicit energy and salinity tridiagonal solves.
+include("column_solvers.jl")
+
+# Coupled time stepping.
+include("column_time_stepping.jl")

@@ -33,6 +33,7 @@ export SlabThermodynamics,
        ExponentialShortwaveAbsorption,
        FluxBoundary,
        MeltingConstrainedFluxBalance,
+       IceWaterThermalEquilibrium,
        PrescribedTemperature,
        RadiativeEmission,
        ConductiveFlux,
@@ -212,7 +213,7 @@ using Oceananigans.Fields: field, Field, Center, Face, ConstantField
 
 using .HeatBoundaryConditions: IceWaterThermalEquilibrium, MeltingConstrainedFluxBalance,
                                RadiativeEmission, FluxFunction, LinearizedSurfaceFlux, PrescribedTemperature,
-                               FluxBoundary, getflux
+                               FluxBoundary, bottom_temperature, getflux
 
 # Enthalpy thermodynamics is not included in this module yet.
 # include("EnthalpyMethodThermodynamics.jl")

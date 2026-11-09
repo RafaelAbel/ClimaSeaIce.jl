@@ -1,6 +1,7 @@
 module HeatBoundaryConditions
 
 export MeltingConstrainedFluxBalance,
+       IceWaterThermalEquilibrium,
        PrescribedTemperature,
        RadiativeEmission,
        FluxFunction,
